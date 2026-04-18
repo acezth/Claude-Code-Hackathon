@@ -29,7 +29,8 @@ type AnthropicMessage =
   | { role: "user" | "assistant"; content: string }
   | { role: "user" | "assistant"; content: ContentBlock[] };
 
-const MIN_CONFIDENCE_PCT = 80;
+/** Minimum model-reported confidence (0–100) to accept macro vision results. */
+export const MACRO_MIN_CONFIDENCE_PCT = 50;
 
 const hasOpenAiKey = () => config.openai.apiKey.length > 0;
 const hasAnthropicKey = () => config.anthropic.apiKey.length > 0;
@@ -152,7 +153,7 @@ export async function estimateMacrosFromImage(imageDataUrl: string): Promise<Mac
     const confidence = parsed.confidence === "low" || parsed.confidence === "high" ? parsed.confidence : "medium";
     const confidencePct = toConfidencePct(parsed.confidencePct, confidence);
 
-    if (confidencePct < MIN_CONFIDENCE_PCT) {
+    if (confidencePct < MACRO_MIN_CONFIDENCE_PCT) {
       throw new Error(`LOW_CONFIDENCE:${confidencePct}`);
     }
 

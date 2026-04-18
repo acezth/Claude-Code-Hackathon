@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { estimateMacrosFromImage, suggestMealsFromFridge } from "@/services/openai";
+import { estimateMacrosFromImage, MACRO_MIN_CONFIDENCE_PCT, suggestMealsFromFridge } from "@/services/openai";
 import type { MacroEstimate, MealSuggestion } from "@/services/types";
 
 export default function FridgeScan() {
@@ -25,7 +25,7 @@ export default function FridgeScan() {
     } catch (err) {
       if (err instanceof Error && err.message.startsWith("LOW_CONFIDENCE:")) {
         const pct = err.message.split(":")[1] ?? "0";
-        setMacroError(`Macro scan failed loudly: confidence ${pct}% is below required 70%. Upload a clearer meal image.`);
+        setMacroError(`Macro scan failed loudly: confidence ${pct}% is below required ${MACRO_MIN_CONFIDENCE_PCT}%. Upload a clearer meal image.`);
       } else {
         setMacroError("Could not analyze macros from this image. Try a clearer photo.");
       }

@@ -13,6 +13,16 @@ function currentOrigin(): string {
   return typeof window !== "undefined" ? window.location.origin : "http://localhost:5173";
 }
 
+/** When both API keys exist, choose which backend to use. */
+export type AiProviderPreference = "auto" | "openai" | "claude";
+
+function parseAiProviderPreference(raw: string): AiProviderPreference {
+  const v = raw.trim().toLowerCase();
+  if (v === "openai") return "openai";
+  if (v === "claude" || v === "anthropic") return "claude";
+  return "auto";
+}
+
 export const config = {
   google: {
     clientId: read("VITE_GOOGLE_CLIENT_ID"),
@@ -39,6 +49,10 @@ export const config = {
   anthropic: {
     apiKey: read("VITE_ANTHROPIC_API_KEY"),
     model: read("VITE_ANTHROPIC_MODEL") || "claude-sonnet-4-6",
+  },
+  ai: {
+    /** openai | claude | auto (default: prefer OpenAI when both keys are set) */
+    provider: parseAiProviderPreference(read("VITE_AI_PROVIDER")),
   },
 };
 
