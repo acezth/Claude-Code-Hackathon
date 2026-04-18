@@ -48,6 +48,17 @@ export interface MealSuggestion {
   why: string;
 }
 
+export interface MacroEstimate {
+  item: string;
+  serving: string;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  confidence: "low" | "medium" | "high";
+  note: string;
+}
+
 export interface GroceryItem {
   id: string;
   text: string;

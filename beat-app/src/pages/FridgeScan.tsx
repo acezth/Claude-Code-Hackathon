@@ -1,19 +1,29 @@
 import { useState } from "react";
-import { suggestMealsFromFridge } from "@/services/openai";
-import type { MealSuggestion } from "@/services/types";
+import { estimateMacrosFromImage, suggestMealsFromFridge } from "@/services/openai";
+import type { MacroEstimate, MealSuggestion } from "@/services/types";
 
 export default function FridgeScan() {
   const [preview, setPreview] = useState<string | null>(null);
   const [meals, setMeals] = useState<MealSuggestion[]>([]);
+  const [macro, setMacro] = useState<MacroEstimate | null>(null);
+  const [macroError, setMacroError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function handleFile(file: File) {
     const dataUrl = await toDataUrl(file);
     setPreview(dataUrl);
+    setMacro(null);
+    setMacroError(null);
     setLoading(true);
     try {
-      const m = await suggestMealsFromFridge(dataUrl);
+      const [m, macroEstimate] = await Promise.all([
+        suggestMealsFromFridge(dataUrl),
+        estimateMacrosFromImage(dataUrl),
+      ]);
       setMeals(m);
+      setMacro(macroEstimate);
+    } catch {
+      setMacroError("Could not analyze macros from this image. Try a clearer photo.");
     } finally {
       setLoading(false);
     }
@@ -62,6 +72,32 @@ export default function FridgeScan() {
         </section>
 
         <section className="card">
+          <h2 className="h2">Macro tracker</h2>
+          {loading ? (
+            <div className="empty">Estimating macros from your image&hellip;</div>
+          ) : macroError ? (
+            <div className="empty">{macroError}</div>
+          ) : !macro ? (
+            <div className="empty">Upload a food photo to estimate calories and macros.</div>
+          ) : (
+            <div className="meal-card" style={{ marginBottom: 14 }}>
+              <div className="meal-thumb">📊</div>
+              <div>
+                <div style={{ fontFamily: "var(--font-serif)", fontSize: 18, fontWeight: 700 }}>{macro.item}</div>
+                <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                  Serving: {macro.serving} · Confidence: {macro.confidence}
+                </div>
+                <div className="row" style={{ marginTop: 8 }}>
+                  <span className="tag go">{macro.calories} kcal</span>
+                  <span className="tag">{macro.proteinG}g protein</span>
+                  <span className="tag">{macro.carbsG}g carbs</span>
+                  <span className="tag">{macro.fatG}g fat</span>
+                </div>
+                <div style={{ fontSize: 13, marginTop: 8 }}>{macro.note}</div>
+              </div>
+            </div>
+          )}
+
           <h2 className="h2">What Beat suggests</h2>
           {loading ? (
             <div className="empty">Reading your shelves&hellip;</div>

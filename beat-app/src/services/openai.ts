@@ -7,7 +7,7 @@
 // All calls here fall back to mock responses when the key isn't
 // configured, so the UI stays runnable.
 
-import type { CalendarEvent, FoodPick, MealSuggestion, Store, CoachReply, Workout } from "./types";
+import type { CalendarEvent, FoodPick, MacroEstimate, MealSuggestion, Store, CoachReply, Workout } from "./types";
 import { config } from "@/lib/config";
 
 const hasKey = () => config.openai.apiKey.length > 0;
@@ -72,6 +72,53 @@ export async function suggestMealsFromFridge(imageDataUrl: string): Promise<Meal
   void imageDataUrl;
   await new Promise((r) => setTimeout(r, 700));
   return MOCK_MEALS;
+}
+
+export async function estimateMacrosFromImage(imageDataUrl: string): Promise<MacroEstimate> {
+  if (!hasKey()) return MOCK_MACROS;
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.openai.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.openai.model,
+        temperature: 0.2,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a nutrition assistant. Estimate food macros from an image. Return strict JSON only with keys: item, serving, calories, proteinG, carbsG, fatG, confidence, note.",
+          },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Identify the most prominent food item in this image and estimate its macros per realistic serving." },
+              { type: "image_url", image_url: { url: imageDataUrl } },
+            ],
+          },
+        ],
+      }),
+    });
+    if (!res.ok) throw new Error(`OpenAI error: ${res.status}`);
+    const json = await res.json();
+    const raw = String(json.choices?.[0]?.message?.content ?? "{}");
+    const parsed = JSON.parse(extractJsonObject(raw)) as Partial<MacroEstimate>;
+    return {
+      item: parsed.item ?? "Unknown food",
+      serving: parsed.serving ?? "1 serving",
+      calories: Number(parsed.calories ?? 0),
+      proteinG: Number(parsed.proteinG ?? 0),
+      carbsG: Number(parsed.carbsG ?? 0),
+      fatG: Number(parsed.fatG ?? 0),
+      confidence: parsed.confidence === "low" || parsed.confidence === "high" ? parsed.confidence : "medium",
+      note: parsed.note ?? "Estimated from image; values may vary.",
+    };
+  } catch {
+    return MOCK_MACROS;
+  }
 }
 
 // ---------- Coach Q&A ------------------------------------------------------
@@ -159,3 +206,21 @@ const MOCK_MEALS: MealSuggestion[] = [
     why: "Makes four portions — future-you on a busy day will thank present-you.",
   },
 ];
+
+const MOCK_MACROS: MacroEstimate = {
+  item: "Chicken salad bowl",
+  serving: "1 medium bowl",
+  calories: 420,
+  proteinG: 32,
+  carbsG: 18,
+  fatG: 24,
+  confidence: "medium",
+  note: "Estimated visually. Dressing and portion size can change totals.",
+};
+
+function extractJsonObject(input: string): string {
+  const start = input.indexOf("{");
+  const end = input.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return "{}";
+  return input.slice(start, end + 1);
+}
