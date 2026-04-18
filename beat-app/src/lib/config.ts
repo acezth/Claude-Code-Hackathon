@@ -32,13 +32,9 @@ export const config = {
     redirectUri: `${currentOrigin()}/settings`,
     scope: "read,profile:read_all,activity:read_all,activity:write",
   },
-  openai: {
-    apiKey: read("VITE_OPENAI_API_KEY"),
-    model: read("VITE_OPENAI_MODEL") || "gpt-4o-mini",
-  },
   anthropic: {
     apiKey: read("VITE_ANTHROPIC_API_KEY"),
-    model: read("VITE_ANTHROPIC_MODEL") || "claude-3-5-sonnet-latest",
+    model: read("VITE_ANTHROPIC_MODEL") || "claude-sonnet-4-6",
   },
 };
 

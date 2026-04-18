@@ -51,7 +51,7 @@ export default function Settings() {
     }
   }
 
-  const openaiOn = config.openai.apiKey.length > 0;
+  const anthropicOn = config.anthropic.apiKey.length > 0;
 
   return (
     <>
@@ -112,17 +112,17 @@ export default function Settings() {
         <div className="conn-row">
           <div className="logo">🧠</div>
           <div>
-            <div style={{ fontWeight: 600 }}>OpenAI</div>
+            <div style={{ fontWeight: 600 }}>Anthropic</div>
             <div className="muted" style={{ fontSize: 12 }}>
               Scene Scan picks, meal scan vision, coach replies.
             </div>
           </div>
           <div className="row" style={{ gap: 10 }}>
-            <span className={`status ${openaiOn ? "on" : "off"}`}>
-              <span className="dot" /> {openaiOn ? "Key detected" : "Missing key"}
+            <span className={`status ${anthropicOn ? "on" : "off"}`}>
+              <span className="dot" /> {anthropicOn ? "Key detected" : "Missing key"}
             </span>
             <span className="muted" style={{ fontSize: 11 }}>
-              set <code>VITE_OPENAI_API_KEY</code>
+              set <code>VITE_ANTHROPIC_API_KEY</code>
             </span>
           </div>
         </div>
@@ -141,9 +141,9 @@ export default function Settings() {
               clientId: mask(config.strava.clientId),
               redirectUri: config.strava.redirectUri,
             },
-            openai: {
-              apiKey: mask(config.openai.apiKey),
-              model: config.openai.model,
+            anthropic: {
+              apiKey: mask(config.anthropic.apiKey),
+              model: config.anthropic.model,
             },
           },
           null,
