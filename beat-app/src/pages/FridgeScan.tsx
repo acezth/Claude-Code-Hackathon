@@ -22,8 +22,13 @@ export default function FridgeScan() {
       ]);
       setMeals(m);
       setMacro(macroEstimate);
-    } catch {
-      setMacroError("Could not analyze macros from this image. Try a clearer photo.");
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith("LOW_CONFIDENCE:")) {
+        const pct = err.message.split(":")[1] ?? "0";
+        setMacroError(`Macro scan failed loudly: confidence ${pct}% is below required 80%. Upload a clearer meal image.`);
+      } else {
+        setMacroError("Could not analyze macros from this image. Try a clearer photo.");
+      }
     } finally {
       setLoading(false);
     }
@@ -85,7 +90,7 @@ export default function FridgeScan() {
               <div>
                 <div style={{ fontFamily: "var(--font-serif)", fontSize: 18, fontWeight: 700 }}>{macro.item}</div>
                 <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-                  Serving: {macro.serving} · Confidence: {macro.confidence}
+                  Serving: {macro.serving} · Confidence: {macro.confidence} ({macro.confidencePct}%)
                 </div>
                 <div style={{ fontSize: 13, marginTop: 8 }}>{macro.visualDescription}</div>
                 <div className="row" style={{ marginTop: 8 }}>

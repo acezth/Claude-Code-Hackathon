@@ -11,6 +11,7 @@ import type { CalendarEvent, FoodPick, MacroEstimate, MealSuggestion, Store, Coa
 import { config } from "@/lib/config";
 
 const hasKey = () => config.openai.apiKey.length > 0;
+const MIN_CONFIDENCE_PCT = 80;
 
 async function callChat(messages: { role: "system" | "user" | "assistant"; content: string }[]): Promise<string> {
   if (!hasKey()) throw new Error("OPENAI_KEY_MISSING");
@@ -97,9 +98,10 @@ export async function estimateMacrosFromImage(imageDataUrl: string): Promise<Mac
                 "Use realistic serving assumptions if portion is unclear.",
                 "If the image is unclear, set confidence to low and explain uncertainty in note.",
                 "Return STRICT JSON only with EXACT keys:",
-                "item, visualDescription, serving, calories, proteinG, carbsG, fatG, confidence, note",
+                "item, visualDescription, serving, calories, proteinG, carbsG, fatG, confidence, confidencePct, note",
                 "Rules:",
                 "- confidence must be one of: low, medium, high",
+                "- confidencePct must be a number from 0 to 100",
                 "- numeric fields must be non-negative numbers",
                 "- keep note concise (max ~20 words)",
               ].join("\n"),
@@ -127,7 +129,7 @@ export async function estimateMacrosFromImage(imageDataUrl: string): Promise<Mac
                   "- A 95% confidence interval (e.g., 600-700 calories) based on visual uncertainty.",
                   "",
                   "For app output, still return STRICT JSON only with EXACT keys:",
-                  "item, visualDescription, serving, calories, proteinG, carbsG, fatG, confidence, note",
+                  "item, visualDescription, serving, calories, proteinG, carbsG, fatG, confidence, confidencePct, note",
                   "Use note to summarize uncertainty and include the calorie interval.",
                 ].join("\n"),
               },
@@ -141,6 +143,11 @@ export async function estimateMacrosFromImage(imageDataUrl: string): Promise<Mac
     const json = await res.json();
     const raw = String(json.choices?.[0]?.message?.content ?? "{}");
     const parsed = JSON.parse(extractJsonObject(raw)) as Partial<MacroEstimate>;
+    const confidence = parsed.confidence === "low" || parsed.confidence === "high" ? parsed.confidence : "medium";
+    const confidencePct = toConfidencePct(parsed.confidencePct, confidence);
+    if (confidencePct < MIN_CONFIDENCE_PCT) {
+      throw new Error(`LOW_CONFIDENCE:${confidencePct}`);
+    }
     return {
       item: parsed.item ?? "Unknown food",
       visualDescription: parsed.visualDescription ?? "No visual description provided.",
@@ -149,10 +156,14 @@ export async function estimateMacrosFromImage(imageDataUrl: string): Promise<Mac
       proteinG: toSafeNumber(parsed.proteinG),
       carbsG: toSafeNumber(parsed.carbsG),
       fatG: toSafeNumber(parsed.fatG),
-      confidence: parsed.confidence === "low" || parsed.confidence === "high" ? parsed.confidence : "medium",
+      confidence,
+      confidencePct,
       note: parsed.note ?? "Estimated from image; values may vary.",
     };
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("LOW_CONFIDENCE:")) {
+      throw err;
+    }
     return MOCK_MACROS;
   }
 }
@@ -251,7 +262,8 @@ const MOCK_MACROS: MacroEstimate = {
   proteinG: 32,
   carbsG: 18,
   fatG: 24,
-  confidence: "medium",
+  confidence: "high",
+  confidencePct: 86,
   note: "Estimated visually. Dressing and portion size can change totals.",
 };
 
@@ -266,4 +278,14 @@ function toSafeNumber(value: unknown): number {
   const n = Number(value);
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.round(n));
+}
+
+function toConfidencePct(value: unknown, confidence: MacroEstimate["confidence"]): number {
+  const n = Number(value);
+  if (Number.isFinite(n)) {
+    return Math.max(0, Math.min(100, Math.round(n)));
+  }
+  if (confidence === "high") return 90;
+  if (confidence === "medium") return 70;
+  return 50;
 }

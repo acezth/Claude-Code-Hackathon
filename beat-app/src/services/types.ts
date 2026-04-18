@@ -57,6 +57,7 @@ export interface MacroEstimate {
   carbsG: number;
   fatG: number;
   confidence: "low" | "medium" | "high";
+  confidencePct: number;
   note: string;
 }
 
