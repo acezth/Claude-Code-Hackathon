@@ -9,6 +9,8 @@ interface ImportMetaEnv {
   readonly VITE_STRAVA_ACCESS_TOKEN: string;
   readonly VITE_STRAVA_REFRESH_TOKEN: string;
   readonly VITE_STRAVA_TOKEN_EXPIRES_AT: string;
+  readonly VITE_OPENAI_API_KEY: string;
+  readonly VITE_OPENAI_MODEL: string;
   readonly VITE_ANTHROPIC_API_KEY: string;
   readonly VITE_ANTHROPIC_MODEL: string;
 }

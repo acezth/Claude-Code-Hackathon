@@ -1,11 +1,11 @@
-// Anthropic - meal suggestions, meal scan vision, coach Q&A.
+// OpenAI / Anthropic - meal suggestions, meal scan vision, coach Q&A.
 //
-// For the hackathon, you can call the API directly from the browser
-// using VITE_ANTHROPIC_API_KEY. For production, proxy through a server
-// so the key stays secret.
+// For the hackathon, you can call either provider directly from the browser
+// using VITE_OPENAI_API_KEY or VITE_ANTHROPIC_API_KEY. For production,
+// proxy through a server so the key stays secret.
 //
-// All calls here fall back to mock responses when the key isn't
-// configured, so the UI stays runnable.
+// All calls here fall back to mock responses when no AI key is configured,
+// so the UI stays runnable.
 
 import type {
   CalendarEvent,
@@ -20,9 +20,7 @@ import type {
 } from "./types";
 import { config } from "@/lib/config";
 
-const MIN_CONFIDENCE_PCT = 80;
-const hasKey = () => config.anthropic.apiKey.length > 0;
-
+type AIProvider = "openai" | "anthropic";
 type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 type ContentBlock =
   | { type: "text"; text: string }
@@ -31,22 +29,63 @@ type AnthropicMessage =
   | { role: "user" | "assistant"; content: string }
   | { role: "user" | "assistant"; content: ContentBlock[] };
 
+const MIN_CONFIDENCE_PCT = 80;
+
+const hasOpenAiKey = () => config.openai.apiKey.length > 0;
+const hasAnthropicKey = () => config.anthropic.apiKey.length > 0;
+
+function getActiveProvider(): AIProvider | null {
+  if (hasAnthropicKey()) return "anthropic";
+  if (hasOpenAiKey()) return "openai";
+  return null;
+}
+
 async function callChat(messages: ChatMessage[]): Promise<string> {
-  return callAnthropic(
-    messages
-      .filter((message) => message.role !== "system")
-      .map((message) => ({ role: message.role as "user" | "assistant", content: message.content })),
-    messages
-      .filter((message) => message.role === "system")
-      .map((message) => message.content.trim())
-      .filter(Boolean)
-      .join("\n\n")
+  const provider = getActiveProvider();
+  if (!provider) throw new Error("AI_KEY_MISSING");
+  return provider === "anthropic" ? callAnthropicChat(messages) : callOpenAiChat(messages);
+}
+
+async function callOpenAiChat(messages: ChatMessage[]): Promise<string> {
+  const openAiMessages = messages.map((message) =>
+    message.role === "system"
+      ? { role: "system" as const, content: message.content }
+      : { role: message.role as "user" | "assistant", content: message.content }
   );
+
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.openai.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.openai.model,
+      messages: openAiMessages,
+      temperature: 0.4,
+    }),
+  });
+
+  if (!res.ok) throw new Error(`OpenAI error: ${res.status}`);
+  const json = await res.json();
+  return String(json.choices?.[0]?.message?.content ?? "");
+}
+
+async function callAnthropicChat(messages: ChatMessage[]): Promise<string> {
+  const system = messages
+    .filter((message) => message.role === "system")
+    .map((message) => message.content.trim())
+    .filter(Boolean)
+    .join("\n\n");
+
+  const anthropicMessages: AnthropicMessage[] = messages
+    .filter((message) => message.role !== "system")
+    .map((message) => ({ role: message.role as "user" | "assistant", content: message.content }));
+
+  return callAnthropic(anthropicMessages, system);
 }
 
 async function callAnthropic(messages: AnthropicMessage[], system?: string): Promise<string> {
-  if (!hasKey()) throw new Error("ANTHROPIC_KEY_MISSING");
-
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -79,7 +118,7 @@ export async function suggestStorePicks(
   store: Store,
   context: { events: CalendarEvent[]; now: string }
 ): Promise<FoodPick[]> {
-  if (!hasKey()) return MOCK_PICKS(store.id);
+  if (!getActiveProvider()) return MOCK_PICKS(store.id);
 
   try {
     const prompt = `Store: ${store.name} (${store.kind}). Next event: ${context.events[0]?.title ?? "n/a"}. Time: ${context.now}. Return 3 short ranked picks for a correspondent who's live in a few hours. JSON array only with fields: title, why, tags, priceUsd, healthScore (0-10).`;
@@ -101,36 +140,13 @@ export async function suggestMealsFromFridge(imageDataUrl: string): Promise<Meal
 }
 
 export async function estimateMacrosFromImage(imageDataUrl: string): Promise<MacroEstimate> {
-  if (!hasKey()) return MOCK_MACROS;
+  const provider = getActiveProvider();
+  if (!provider) return MOCK_MACROS;
 
   try {
-    const imageBlock = dataUrlToAnthropicImage(imageDataUrl);
-    const raw = await callAnthropic(
-      [
-        {
-          role: "user",
-          content: [
-            imageBlock,
-            {
-              type: "text",
-              text: [
-                "Estimate nutrition for the PRIMARY visible food item only.",
-                "Use realistic serving assumptions if portion is unclear.",
-                "If the image is unclear, set confidence to low and explain uncertainty in note.",
-                "Return STRICT JSON only with EXACT keys:",
-                "item, visualDescription, serving, calories, proteinG, carbsG, fatG, confidence, confidencePct, note",
-                "Rules:",
-                "- confidence must be one of: low, medium, high",
-                "- confidencePct must be a number from 0 to 100",
-                "- numeric fields must be non-negative numbers",
-                "- keep note concise",
-              ].join("\n"),
-            },
-          ],
-        },
-      ],
-      "You are a nutrition assistant specialized in visual macro estimates. Output JSON only."
-    );
+    const raw = provider === "anthropic"
+      ? await callAnthropicVisionForMacros(imageDataUrl)
+      : await callOpenAiVisionForMacros(imageDataUrl);
 
     const parsed = JSON.parse(extractJsonObject(raw)) as Partial<MacroEstimate>;
     const confidence = parsed.confidence === "low" || parsed.confidence === "high" ? parsed.confidence : "medium";
@@ -161,7 +177,7 @@ export async function estimateMacrosFromImage(imageDataUrl: string): Promise<Mac
 }
 
 export async function askCoach(question: string, ctx?: { events?: CalendarEvent[]; workouts?: Workout[] }): Promise<CoachReply> {
-  if (!hasKey()) {
+  if (!getActiveProvider()) {
     return {
       text:
         "You're running on five hours of sleep and you've got a live hit at 5. Eat a protein + complex carb in the next 20 minutes, then nothing heavy till after the hit. Water now.",
@@ -191,7 +207,7 @@ export async function suggestCoachMeals(
   preferences: CoachMealPreferences,
   ctx?: { events?: CalendarEvent[]; workouts?: Workout[] }
 ): Promise<CoachMealPlan> {
-  if (!hasKey()) return mockCoachMealPlan(preferences, ctx);
+  if (!getActiveProvider()) return mockCoachMealPlan(preferences, ctx);
 
   try {
     const contextBlock = buildCoachContext(ctx);
@@ -235,6 +251,73 @@ export async function suggestCoachMeals(
   } catch {
     return mockCoachMealPlan(preferences, ctx);
   }
+}
+
+async function callOpenAiVisionForMacros(imageDataUrl: string): Promise<string> {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.openai.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.openai.model,
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a nutrition assistant specialized in visual macro estimates. Return strict JSON only with keys: item, visualDescription, serving, calories, proteinG, carbsG, fatG, confidence, confidencePct, note.",
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: [
+                "Estimate nutrition for the PRIMARY visible food item only.",
+                "Use realistic serving assumptions if portion is unclear.",
+                "If the image is unclear, set confidence to low and explain uncertainty in note.",
+                "Return STRICT JSON only with EXACT keys:",
+                "item, visualDescription, serving, calories, proteinG, carbsG, fatG, confidence, confidencePct, note",
+              ].join("\n"),
+            },
+            { type: "image_url", image_url: { url: imageDataUrl } },
+          ],
+        },
+      ],
+    }),
+  });
+
+  if (!res.ok) throw new Error(`OpenAI error: ${res.status}`);
+  const json = await res.json();
+  return String(json.choices?.[0]?.message?.content ?? "{}");
+}
+
+async function callAnthropicVisionForMacros(imageDataUrl: string): Promise<string> {
+  const imageBlock = dataUrlToAnthropicImage(imageDataUrl);
+  return callAnthropic(
+    [
+      {
+        role: "user",
+        content: [
+          imageBlock,
+          {
+            type: "text",
+            text: [
+              "Estimate nutrition for the PRIMARY visible food item only.",
+              "Use realistic serving assumptions if portion is unclear.",
+              "If the image is unclear, set confidence to low and explain uncertainty in note.",
+              "Return STRICT JSON only with EXACT keys:",
+              "item, visualDescription, serving, calories, proteinG, carbsG, fatG, confidence, confidencePct, note",
+            ].join("\n"),
+          },
+        ],
+      },
+    ],
+    "You are a nutrition assistant specialized in visual macro estimates. Output JSON only."
+  );
 }
 
 function MOCK_PICKS(storeId: string): FoodPick[] {

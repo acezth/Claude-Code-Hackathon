@@ -3,19 +3,18 @@ import { isGoogleSignedIn, signInWithGoogle, signOutGoogle } from "@/services/go
 import {
   buildStravaAuthUrlForPath,
   completeStravaAuthFromCurrentUrl,
-  isStravaConnected,
   disconnectStrava,
-  getStravaSetupError
+  getStravaSetupError,
+  isStravaConnected,
 } from "@/services/strava";
 import { config } from "@/lib/config";
 
 export default function Settings() {
   const [googleOn, setGoogleOn] = useState(isGoogleSignedIn());
   const [stravaOn, setStravaOn] = useState(isStravaConnected());
-  const [stravaError, setStravaError] = useState<string>("");
+  const [stravaError, setStravaError] = useState("");
   const stravaSetupError = getStravaSetupError();
 
-  // If Strava redirected back with ?code=..., exchange it.
   useEffect(() => {
     completeStravaAuthFromCurrentUrl()
       .then((didConnect) => {
@@ -51,7 +50,9 @@ export default function Settings() {
     }
   }
 
+  const openAiOn = config.openai.apiKey.length > 0;
   const anthropicOn = config.anthropic.apiKey.length > 0;
+  const activeProvider = anthropicOn ? "Anthropic" : openAiOn ? "OpenAI" : "None";
 
   return (
     <>
@@ -73,7 +74,7 @@ export default function Settings() {
           <div>
             <div style={{ fontWeight: 600 }}>Google Calendar, Gmail, Maps</div>
             <div className="muted" style={{ fontSize: 12 }}>
-              Today&rsquo;s schedule, relevant inbox, and nearby stores.
+              Today&apos;s schedule, relevant inbox, and nearby stores.
             </div>
           </div>
           <div className="row" style={{ gap: 10 }}>
@@ -112,43 +113,50 @@ export default function Settings() {
         <div className="conn-row">
           <div className="logo">🧠</div>
           <div>
-            <div style={{ fontWeight: 600 }}>Anthropic</div>
+            <div style={{ fontWeight: 600 }}>AI provider</div>
             <div className="muted" style={{ fontSize: 12 }}>
-              Scene Scan picks, meal scan vision, coach replies.
+              Scene Scan picks, meal scan vision, and coach replies. Anthropic is preferred when both keys are present.
             </div>
           </div>
           <div className="row" style={{ gap: 10 }}>
-            <span className={`status ${anthropicOn ? "on" : "off"}`}>
-              <span className="dot" /> {anthropicOn ? "Key detected" : "Missing key"}
+            <span className={`status ${openAiOn || anthropicOn ? "on" : "off"}`}>
+              <span className="dot" /> {openAiOn || anthropicOn ? `${activeProvider} ready` : "Missing key"}
             </span>
-            <span className="muted" style={{ fontSize: 11 }}>
-              set <code>VITE_ANTHROPIC_API_KEY</code>
-            </span>
+            <div className="muted" style={{ fontSize: 11 }}>
+              <div>OpenAI: <code>{openAiOn ? "detected" : "VITE_OPENAI_API_KEY"}</code></div>
+              <div>Anthropic: <code>{anthropicOn ? "detected" : "VITE_ANTHROPIC_API_KEY"}</code></div>
+            </div>
           </div>
         </div>
       </section>
 
       <section className="card" style={{ marginTop: 18 }}>
         <h2 className="h2">Env status</h2>
-        <pre style={{ fontSize: 12, background: "#0f2a47", color: "#cadcfc", padding: 14, borderRadius: 8, overflow: "auto" }}>{JSON.stringify(
-          {
-            google: {
-              clientId: mask(config.google.clientId),
-              apiKey: mask(config.google.apiKey),
-              mapsKey: mask(config.google.mapsKey),
+        <pre style={{ fontSize: 12, background: "#0f2a47", color: "#cadcfc", padding: 14, borderRadius: 8, overflow: "auto" }}>
+          {JSON.stringify(
+            {
+              google: {
+                clientId: mask(config.google.clientId),
+                apiKey: mask(config.google.apiKey),
+                mapsKey: mask(config.google.mapsKey),
+              },
+              strava: {
+                clientId: mask(config.strava.clientId),
+                redirectUri: config.strava.redirectUri,
+              },
+              openai: {
+                apiKey: mask(config.openai.apiKey),
+                model: config.openai.model,
+              },
+              anthropic: {
+                apiKey: mask(config.anthropic.apiKey),
+                model: config.anthropic.model,
+              },
             },
-            strava: {
-              clientId: mask(config.strava.clientId),
-              redirectUri: config.strava.redirectUri,
-            },
-            anthropic: {
-              apiKey: mask(config.anthropic.apiKey),
-              model: config.anthropic.model,
-            },
-          },
-          null,
-          2
-        )}</pre>
+            null,
+            2
+          )}
+        </pre>
         <p className="muted" style={{ fontSize: 12 }}>
           Copy <code>.env.example</code> to <code>.env.local</code> and fill in your keys, then restart <code>npm run dev</code>.
         </p>
@@ -157,8 +165,8 @@ export default function Settings() {
   );
 }
 
-function mask(v: string): string {
-  if (!v) return "(unset)";
-  if (v.length <= 6) return "•".repeat(v.length);
-  return v.slice(0, 3) + "•".repeat(Math.min(v.length - 6, 8)) + v.slice(-3);
+function mask(value: string): string {
+  if (!value) return "(unset)";
+  if (value.length <= 6) return "*".repeat(value.length);
+  return value.slice(0, 3) + "*".repeat(Math.min(value.length - 6, 8)) + value.slice(-3);
 }
