@@ -16,16 +16,18 @@ export default function FridgeScan() {
     setMacroError(null);
     setLoading(true);
     try {
-      const [m, macroEstimate] = await Promise.all([
+      const [suggestions, macroEstimate] = await Promise.all([
         suggestMealsFromFridge(dataUrl),
         estimateMacrosFromImage(dataUrl),
       ]);
-      setMeals(m);
+      setMeals(suggestions);
       setMacro(macroEstimate);
     } catch (err) {
       if (err instanceof Error && err.message.startsWith("LOW_CONFIDENCE:")) {
         const pct = err.message.split(":")[1] ?? "0";
-        setMacroError(`Macro scan failed loudly: confidence ${pct}% is below required ${MACRO_MIN_CONFIDENCE_PCT}%. Upload a clearer meal image.`);
+        setMacroError(
+          `Macro scan failed loudly: confidence ${pct}% is below required ${MACRO_MIN_CONFIDENCE_PCT}%. Upload a clearer meal image.`
+        );
       } else {
         setMacroError("Could not analyze macros from this image. Try a clearer photo.");
       }
@@ -35,11 +37,20 @@ export default function FridgeScan() {
   }
 
   function addMissingToList(items: string[]) {
-    // Persisted in localStorage so the Groceries page can pick it up.
-    const existing = JSON.parse(localStorage.getItem("beat.groceries") || "[]") as { id: string; text: string; done: boolean; addedBy: string }[];
+    const existing = JSON.parse(localStorage.getItem("beat.groceries") || "[]") as {
+      id: string;
+      text: string;
+      done: boolean;
+      addedBy: string;
+    }[];
     const next = [
       ...existing,
-      ...items.map((t) => ({ id: crypto.randomUUID(), text: t, done: false, addedBy: "meal-scan" as const })),
+      ...items.map((text) => ({
+        id: crypto.randomUUID(),
+        text,
+        done: false,
+        addedBy: "meal-scan" as const,
+      })),
     ];
     localStorage.setItem("beat.groceries", JSON.stringify(next));
     alert(`${items.length} item(s) added to your grocery list.`);
@@ -49,48 +60,59 @@ export default function FridgeScan() {
     <>
       <div className="eyebrow">Meal Scan</div>
       <h1 className="h1">Show Beat what you have.</h1>
-      <p className="lede">Snap your meal. Beat estimates macros from the plate and suggests three clean follow-up meals you can actually make.</p>
+      <p className="lede">
+        Snap your meal. Beat estimates macros from the plate and suggests three clean follow-up meals you can actually make.
+      </p>
 
       <div className="grid-2" style={{ marginTop: 24, alignItems: "start" }}>
         <section className="card">
           <h2 className="h2">Upload</h2>
-          <label className="dropzone">
-            <div style={{ fontSize: 36 }}>🧊</div>
-            <div style={{ fontWeight: 600, marginTop: 6 }}>Click to choose a photo</div>
-            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>or drag one in</div>
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleFile(f);
-              }}
-            />
-          </label>
+          <div className="meal-scan-upload">
+            <label className="dropzone">
+              <div className="dropzone-icon">Scan</div>
+              <div style={{ fontWeight: 600, marginTop: 6 }}>Click to choose a photo</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>or drag one in</div>
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleFile(file);
+                }}
+              />
+            </label>
 
-          {preview && (
-            <div style={{ marginTop: 16 }}>
-              <img className="preview-img" src={preview} alt="Your meal" />
+            <div className="meal-scan-preview-frame">
+              {preview ? (
+                <img className="preview-img" src={preview} alt="Your meal" />
+              ) : (
+                <div className="meal-scan-preview-empty">
+                  <div style={{ fontWeight: 600 }}>Photo preview</div>
+                  <div className="muted" style={{ marginTop: 4 }}>
+                    Your image will appear here without changing the card layout.
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </section>
 
         <section className="card">
           <h2 className="h2">Macro tracker</h2>
           {loading ? (
-            <div className="empty">Estimating macros from your image&hellip;</div>
+            <div className="empty">Estimating macros from your image...</div>
           ) : macroError ? (
             <div className="empty">{macroError}</div>
           ) : !macro ? (
             <div className="empty">Upload a food photo to estimate calories and macros.</div>
           ) : (
             <div className="meal-card" style={{ marginBottom: 14 }}>
-              <div className="meal-thumb">📊</div>
+              <div className="meal-thumb">Data</div>
               <div>
                 <div style={{ fontFamily: "var(--font-serif)", fontSize: 18, fontWeight: 700 }}>{macro.item}</div>
                 <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-                  Serving: {macro.serving} · Confidence: {macro.confidence} ({macro.confidencePct}%)
+                  Serving: {macro.serving} | Confidence: {macro.confidence} ({macro.confidencePct}%)
                 </div>
                 <div style={{ fontSize: 13, marginTop: 8 }}>{macro.visualDescription}</div>
                 <div className="row" style={{ marginTop: 8 }}>
@@ -106,32 +128,32 @@ export default function FridgeScan() {
 
           <h2 className="h2">What Beat suggests</h2>
           {loading ? (
-            <div className="empty">Reading your shelves&hellip;</div>
+            <div className="empty">Reading your shelves...</div>
           ) : meals.length === 0 ? (
             <div className="empty">Upload a photo to see three meals you can make right now.</div>
           ) : (
             <div>
-              {meals.map((m) => (
-                <div key={m.id} className="meal-card" style={{ marginBottom: 10 }}>
-                  <div className="meal-thumb">{m.emoji}</div>
+              {meals.map((meal) => (
+                <div key={meal.id} className="meal-card" style={{ marginBottom: 10 }}>
+                  <div className="meal-thumb">{meal.emoji}</div>
                   <div>
-                    <div style={{ fontFamily: "var(--font-serif)", fontSize: 18, fontWeight: 700 }}>{m.title}</div>
+                    <div style={{ fontFamily: "var(--font-serif)", fontSize: 18, fontWeight: 700 }}>{meal.title}</div>
                     <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-                      {m.minutes} min {m.calories ? `· ${m.calories} kcal` : ""}
+                      {meal.minutes} min {meal.calories ? `| ${meal.calories} kcal` : ""}
                     </div>
-                    <div style={{ fontSize: 13, marginTop: 6 }}>{m.why}</div>
+                    <div style={{ fontSize: 13, marginTop: 6 }}>{meal.why}</div>
                     <div className="row" style={{ marginTop: 8 }}>
-                      {m.ingredients.slice(0, 4).map((i) => (
-                        <span key={i} className="tag go">{i}</span>
+                      {meal.ingredients.slice(0, 4).map((ingredient) => (
+                        <span key={ingredient} className="tag go">
+                          {ingredient}
+                        </span>
                       ))}
-                      {m.missing.length > 0 && (
-                        <span className="tag warn">+{m.missing.length} missing</span>
-                      )}
+                      {meal.missing.length > 0 && <span className="tag warn">+{meal.missing.length} missing</span>}
                     </div>
                   </div>
                   <div>
-                    {m.missing.length > 0 ? (
-                      <button className="btn sm" onClick={() => addMissingToList(m.missing)}>
+                    {meal.missing.length > 0 ? (
+                      <button className="btn sm" onClick={() => addMissingToList(meal.missing)}>
                         Add to list
                       </button>
                     ) : (
@@ -150,9 +172,9 @@ export default function FridgeScan() {
 
 function toDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result));
-    r.onerror = reject;
-    r.readAsDataURL(file);
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
   });
 }

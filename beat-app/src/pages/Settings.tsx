@@ -131,42 +131,11 @@ export default function Settings() {
       </section>
 
       <section className="card" style={{ marginTop: 18 }}>
-        <h2 className="h2">Env status</h2>
-        <pre style={{ fontSize: 12, background: "#0f2a47", color: "#cadcfc", padding: 14, borderRadius: 8, overflow: "auto" }}>
-          {JSON.stringify(
-            {
-              google: {
-                clientId: mask(config.google.clientId),
-                apiKey: mask(config.google.apiKey),
-                mapsKey: mask(config.google.mapsKey),
-              },
-              strava: {
-                clientId: mask(config.strava.clientId),
-                redirectUri: config.strava.redirectUri,
-              },
-              openai: {
-                apiKey: mask(config.openai.apiKey),
-                model: config.openai.model,
-              },
-              anthropic: {
-                apiKey: mask(config.anthropic.apiKey),
-                model: config.anthropic.model,
-              },
-            },
-            null,
-            2
-          )}
-        </pre>
-        <p className="muted" style={{ fontSize: 12 }}>
-          Copy <code>.env.example</code> to <code>.env.local</code> and fill in your keys, then restart <code>npm run dev</code>.
+        <h2 className="h2">Configuration</h2>
+        <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+          Keep API keys in <code>.env.local</code> and restart <code>npm run dev</code> after changes.
         </p>
       </section>
     </>
   );
-}
-
-function mask(value: string): string {
-  if (!value) return "(unset)";
-  if (value.length <= 6) return "*".repeat(value.length);
-  return value.slice(0, 3) + "*".repeat(Math.min(value.length - 6, 8)) + value.slice(-3);
 }

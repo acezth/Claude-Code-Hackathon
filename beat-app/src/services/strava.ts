@@ -312,21 +312,21 @@ function readEnvBootstrapToken(): StoredStravaToken | null {
     accessToken: config.strava.accessToken.trim(),
     refreshToken: config.strava.refreshToken.trim(),
     expiresAt: Number.isFinite(expiresAt) && expiresAt > 0 ? expiresAt : 0,
-    scopes: config.strava.scope.split(",").map((scope) => scope.trim()).filter(Boolean),
+    scopes: ["read"],
     athleteId: undefined
   };
 }
 
 function getStoredToken(): StoredStravaToken | null {
-  const stored = readJson<StoredStravaToken | null>(STORAGE_TOKEN_KEY, null);
-  if (stored) {
-    return stored;
-  }
-
   const bootstrapped = readEnvBootstrapToken();
   if (bootstrapped) {
     saveToken(bootstrapped);
     return bootstrapped;
+  }
+
+  const stored = readJson<StoredStravaToken | null>(STORAGE_TOKEN_KEY, null);
+  if (stored) {
+    return stored;
   }
 
   return null;
@@ -350,6 +350,15 @@ function getTokenScopes(): string[] {
 
 function tokenHasScope(scope: string): boolean {
   return getTokenScopes().includes(scope);
+}
+
+function isStravaPermissionError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return message.includes("authorization error") || message.includes("permission.missing");
 }
 
 function ensureConfiguredForStrava(): void {
@@ -1052,7 +1061,10 @@ export async function listRecentWorkouts(max = 10, options?: { includeFallback?:
   try {
     const strava = await listStravaActivities(Math.max(max * 2, max));
     return mergeTrackedWorkouts(strava, manual).slice(0, max);
-  } catch {
+  } catch (error) {
+    if (isStravaPermissionError(error)) {
+      return manual.length > 0 ? manual.slice(0, max) : MOCK_WORKOUTS.slice(0, max);
+    }
     if (manual.length > 0) {
       return manual.slice(0, max);
     }
@@ -1078,10 +1090,17 @@ export async function loadActivityDashboard(max = 20): Promise<ActivityDashboard
     const athlete = await getStravaAthlete();
     const [stats, stravaWorkouts] = await Promise.all([
       getStravaAthleteStats(athlete.id).catch((error: unknown) => {
-        errors.push(error instanceof Error ? error.message : "Unable to load Strava stats.");
+        if (!isStravaPermissionError(error)) {
+          errors.push(error instanceof Error ? error.message : "Unable to load Strava stats.");
+        }
         return undefined;
       }),
-      listStravaActivities(Math.max(max * 2, max))
+      listStravaActivities(Math.max(max * 2, max)).catch((error: unknown) => {
+        if (!isStravaPermissionError(error)) {
+          throw error;
+        }
+        return [];
+      })
     ]);
 
     return {
@@ -1093,7 +1112,9 @@ export async function loadActivityDashboard(max = 20): Promise<ActivityDashboard
       errors
     };
   } catch (error) {
-    errors.push(error instanceof Error ? error.message : "Unable to load Strava activity.");
+    if (!isStravaPermissionError(error)) {
+      errors.push(error instanceof Error ? error.message : "Unable to load Strava activity.");
+    }
     return {
       connected: true,
       hasWriteAccess: hasStravaWriteAccess(),

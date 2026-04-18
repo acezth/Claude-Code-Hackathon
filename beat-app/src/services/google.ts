@@ -193,14 +193,72 @@ declare global {
 let mapsPlacesPromise: Promise<void> | null = null;
 
 export async function findNearbyStores(q: NearbyQuery): Promise<Store[]> {
-  // TODO: Real Places API call (requires a separate Maps API key in config.google.mapsKey).
-  //   POST https://places.googleapis.com/v1/places:searchNearby
-  // Combined with the Distance Matrix API for ETAs.
-  await new Promise((r) => setTimeout(r, 250));
   const kinds = q.kinds && q.kinds.length > 0 ? q.kinds : (["grocery", "convenience", "restaurant"] as Store["kind"][]);
-  return MOCK_STORES
-    .filter((s) => kinds.includes(s.kind))
-    .filter((s) => (q.maxMinutes ? s.etaMin <= q.maxMinutes : true));
+
+  if (!config.google.mapsKey || typeof window === "undefined") {
+    await new Promise((r) => setTimeout(r, 250));
+    return fallbackNearbyStores(q, kinds);
+  }
+
+  try {
+    await ensureGoogleMapsPlacesApi();
+
+    const googleMaps = window.google?.maps;
+    if (!googleMaps?.importLibrary) {
+      return fallbackNearbyStores(q, kinds);
+    }
+
+    const placesLibrary = (await googleMaps.importLibrary("places")) as {
+      Place?: {
+        searchNearby?: (request: Record<string, unknown>) => Promise<{
+          places?: GooglePlaceSearchResult[];
+        }>;
+      };
+      SearchNearbyRankPreference?: {
+        DISTANCE?: string;
+      };
+    };
+
+    const searchNearby = placesLibrary.Place?.searchNearby;
+    if (!searchNearby) {
+      return fallbackNearbyStores(q, kinds);
+    }
+
+    const center = googleMaps.LatLng ? new googleMaps.LatLng(q.lat, q.lng) : { lat: q.lat, lng: q.lng };
+    const rankPreference = placesLibrary.SearchNearbyRankPreference?.DISTANCE ?? "DISTANCE";
+    const requests = kinds.map(async (kind) => {
+      const response = await searchNearby({
+        maxResultCount: 8,
+        includedPrimaryTypes: getStorePrimaryTypes(kind),
+        rankPreference,
+        locationRestriction: {
+          center,
+          radius: getStoreSearchRadiusMeters(q.maxMinutes),
+        },
+        fields: [
+          "id",
+          "displayName",
+          "formattedAddress",
+          "location",
+          "rating",
+          "userRatingCount",
+          "primaryType",
+          "regularOpeningHours",
+        ],
+      });
+
+      return (response.places ?? []).map((place) => normalizeNearbyStore(place, q, kind));
+    });
+
+    const merged = dedupeStores((await Promise.all(requests)).flat())
+      .filter((store) => (q.maxMinutes ? store.etaMin <= q.maxMinutes : true))
+      .sort((a, b) => a.etaMin - b.etaMin || b.healthScore - a.healthScore);
+
+    return merged.length > 0 ? merged : fallbackNearbyStores(q, kinds);
+  } catch (error) {
+    console.warn("[google] nearby store lookup failed, using mocks:", error);
+    return fallbackNearbyStores(q, kinds);
+  }
 }
 
 export async function findNearbyWellnessPlaces(q: WellnessFinderQuery): Promise<WellnessPlace[]> {
@@ -396,6 +454,106 @@ function normalizeLatLng(value: GoogleLatLngLike | undefined): { lat: number; ln
   const lat = typeof value?.lat === "function" ? value.lat() : value?.lat ?? 0;
   const lng = typeof value?.lng === "function" ? value.lng() : value?.lng ?? 0;
   return { lat, lng };
+}
+
+function normalizeNearbyStore(
+  place: GooglePlaceSearchResult,
+  q: Pick<NearbyQuery, "lat" | "lng">,
+  fallbackKind: Store["kind"]
+): Store {
+  const normalizedLocation = normalizeLatLng(place.location);
+  const distanceMi = roundToSingleDecimal(milesBetween(q.lat, q.lng, normalizedLocation.lat, normalizedLocation.lng));
+  const kind = inferStoreKind(place.primaryType, fallbackKind);
+  const etaMin = estimateEtaMinutes(distanceMi, kind);
+
+  return {
+    id: place.id || `${readLocalizedText(place.displayName) || "store"}-${normalizedLocation.lat},${normalizedLocation.lng}`,
+    name: readLocalizedText(place.displayName) || place.formattedAddress || "Nearby store",
+    kind,
+    distanceMi,
+    etaMin,
+    healthScore: estimateHealthScore({
+      kind,
+      primaryType: place.primaryType,
+      rating: typeof place.rating === "number" ? place.rating : undefined,
+      reviewCount: typeof place.userRatingCount === "number" ? place.userRatingCount : undefined,
+    }),
+    address: place.formattedAddress,
+  };
+}
+
+function dedupeStores(stores: Store[]): Store[] {
+  const seen = new Map<string, Store>();
+  for (const store of stores) {
+    const existing = seen.get(store.id);
+    if (!existing || store.healthScore > existing.healthScore) {
+      seen.set(store.id, store);
+    }
+  }
+  return Array.from(seen.values());
+}
+
+function fallbackNearbyStores(q: NearbyQuery, kinds: Store["kind"][]): Store[] {
+  return MOCK_STORES
+    .filter((store) => kinds.includes(store.kind))
+    .filter((store) => (q.maxMinutes ? store.etaMin <= q.maxMinutes : true));
+}
+
+function getStorePrimaryTypes(kind: Store["kind"]): string[] {
+  if (kind === "grocery") {
+    return ["supermarket", "grocery_store"];
+  }
+  if (kind === "convenience") {
+    return ["convenience_store"];
+  }
+  return ["restaurant", "meal_takeaway", "cafe", "sandwich_shop"];
+}
+
+function getStoreSearchRadiusMeters(maxMinutes = 15): number {
+  return Math.max(1200, Math.min(12000, maxMinutes * 320));
+}
+
+function inferStoreKind(primaryType: string | undefined, fallbackKind: Store["kind"]): Store["kind"] {
+  const type = (primaryType ?? "").toLowerCase();
+  if (type.includes("convenience")) return "convenience";
+  if (type.includes("market") || type.includes("grocery") || type.includes("supermarket")) return "grocery";
+  if (type) return "restaurant";
+  return fallbackKind;
+}
+
+function estimateEtaMinutes(distanceMi: number, kind: Store["kind"]): number {
+  const minutesPerMile = kind === "grocery" ? 15 : kind === "convenience" ? 13 : 14;
+  const stopBuffer = kind === "grocery" ? 4 : kind === "convenience" ? 2 : 5;
+  return Math.max(1, Math.round(distanceMi * minutesPerMile + stopBuffer));
+}
+
+function estimateHealthScore({
+  kind,
+  primaryType,
+  rating,
+  reviewCount,
+}: {
+  kind: Store["kind"];
+  primaryType?: string;
+  rating?: number;
+  reviewCount?: number;
+}): number {
+  const base =
+    kind === "grocery" ? 8.2 :
+    kind === "restaurant" ? 7.1 :
+    5.4;
+
+  const type = (primaryType ?? "").toLowerCase();
+  const typeBonus =
+    type.includes("vegan") || type.includes("vegetarian") ? 0.9 :
+    type.includes("juice") || type.includes("salad") ? 0.7 :
+    type.includes("supermarket") || type.includes("grocery") ? 0.5 :
+    type.includes("convenience") ? -0.5 :
+    0;
+
+  const ratingBonus = rating ? (rating - 4) * 0.7 : 0;
+  const trustBonus = reviewCount && reviewCount > 50 ? 0.2 : 0;
+  return Math.max(3.5, Math.min(9.8, roundToSingleDecimal(base + typeBonus + ratingBonus + trustBonus)));
 }
 
 function getWellnessSearchRadiusMeters(category: WellnessFinderKind): number {
