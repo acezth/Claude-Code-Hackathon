@@ -34,7 +34,7 @@ export default function FridgeScan() {
     const existing = JSON.parse(localStorage.getItem("beat.groceries") || "[]") as { id: string; text: string; done: boolean; addedBy: string }[];
     const next = [
       ...existing,
-      ...items.map((t) => ({ id: crypto.randomUUID(), text: t, done: false, addedBy: "fridge-scan" as const })),
+      ...items.map((t) => ({ id: crypto.randomUUID(), text: t, done: false, addedBy: "meal-scan" as const })),
     ];
     localStorage.setItem("beat.groceries", JSON.stringify(next));
     alert(`${items.length} item(s) added to your grocery list.`);
@@ -42,9 +42,9 @@ export default function FridgeScan() {
 
   return (
     <>
-      <div className="eyebrow">Fridge Scan</div>
+      <div className="eyebrow">Meal Scan</div>
       <h1 className="h1">Show Beat what you have.</h1>
-      <p className="lede">Snap your fridge or pantry. Beat reads what&rsquo;s in there and suggests three clean meals you can actually make.</p>
+      <p className="lede">Snap your meal. Beat estimates macros from the plate and suggests three clean follow-up meals you can actually make.</p>
 
       <div className="grid-2" style={{ marginTop: 24, alignItems: "start" }}>
         <section className="card">
@@ -66,7 +66,7 @@ export default function FridgeScan() {
 
           {preview && (
             <div style={{ marginTop: 16 }}>
-              <img className="preview-img" src={preview} alt="Your fridge" />
+              <img className="preview-img" src={preview} alt="Your meal" />
             </div>
           )}
         </section>
@@ -87,6 +87,7 @@ export default function FridgeScan() {
                 <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
                   Serving: {macro.serving} · Confidence: {macro.confidence}
                 </div>
+                <div style={{ fontSize: 13, marginTop: 8 }}>{macro.visualDescription}</div>
                 <div className="row" style={{ marginTop: 8 }}>
                   <span className="tag go">{macro.calories} kcal</span>
                   <span className="tag">{macro.proteinG}g protein</span>

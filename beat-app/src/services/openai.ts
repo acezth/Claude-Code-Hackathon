@@ -1,4 +1,4 @@
-// OpenAI — meal suggestions, fridge vision, coach Q&A.
+// OpenAI — meal suggestions, meal scan vision, coach Q&A.
 //
 // For the hackathon, you can call the API directly from the browser
 // using VITE_OPENAI_API_KEY. For production, proxy through a server
@@ -86,16 +86,51 @@ export async function estimateMacrosFromImage(imageDataUrl: string): Promise<Mac
       body: JSON.stringify({
         model: config.openai.model,
         temperature: 0.2,
+        response_format: { type: "json_object" },
         messages: [
           {
             role: "system",
             content:
-              "You are a nutrition assistant. Estimate food macros from an image. Return strict JSON only with keys: item, serving, calories, proteinG, carbsG, fatG, confidence, note.",
+              [
+                "You are a nutrition assistant specialized in visual macro estimates.",
+                "Estimate nutrition for the PRIMARY visible food item only.",
+                "Use realistic serving assumptions if portion is unclear.",
+                "If the image is unclear, set confidence to low and explain uncertainty in note.",
+                "Return STRICT JSON only with EXACT keys:",
+                "item, visualDescription, serving, calories, proteinG, carbsG, fatG, confidence, note",
+                "Rules:",
+                "- confidence must be one of: low, medium, high",
+                "- numeric fields must be non-negative numbers",
+                "- keep note concise (max ~20 words)",
+              ].join("\n"),
           },
           {
             role: "user",
             content: [
-              { type: "text", text: "Identify the most prominent food item in this image and estimate its macros per realistic serving." },
+              {
+                type: "text",
+                text: [
+                  "Calorie Estimation Prompt",
+                  "Instructions: Upload your photo and paste the following text into the chat. Fill in the bracketed information [ ] based on your specific meal.",
+                  "",
+                  "Act as a professional nutritionist and AI vision specialist. I am providing an image of a meal. To ensure the highest possible accuracy in your estimation, please use the following context:",
+                  "",
+                  "Physical Scale: [Not provided].",
+                  "Hidden Components: [Not provided].",
+                  "Preparation Style: [Not provided].",
+                  "Specific Brands/Ingredients: [Not provided].",
+                  "",
+                  "Please provide:",
+                  "- A detailed item-by-item breakdown of the plate.",
+                  "- Estimated volume (cups/tbsp) and weight (grams) for each component.",
+                  "- Estimated Macros (Protein, Carbs, Fats) and total Calories.",
+                  "- A 95% confidence interval (e.g., 600-700 calories) based on visual uncertainty.",
+                  "",
+                  "For app output, still return STRICT JSON only with EXACT keys:",
+                  "item, visualDescription, serving, calories, proteinG, carbsG, fatG, confidence, note",
+                  "Use note to summarize uncertainty and include the calorie interval.",
+                ].join("\n"),
+              },
               { type: "image_url", image_url: { url: imageDataUrl } },
             ],
           },
@@ -108,11 +143,12 @@ export async function estimateMacrosFromImage(imageDataUrl: string): Promise<Mac
     const parsed = JSON.parse(extractJsonObject(raw)) as Partial<MacroEstimate>;
     return {
       item: parsed.item ?? "Unknown food",
+      visualDescription: parsed.visualDescription ?? "No visual description provided.",
       serving: parsed.serving ?? "1 serving",
-      calories: Number(parsed.calories ?? 0),
-      proteinG: Number(parsed.proteinG ?? 0),
-      carbsG: Number(parsed.carbsG ?? 0),
-      fatG: Number(parsed.fatG ?? 0),
+      calories: toSafeNumber(parsed.calories),
+      proteinG: toSafeNumber(parsed.proteinG),
+      carbsG: toSafeNumber(parsed.carbsG),
+      fatG: toSafeNumber(parsed.fatG),
       confidence: parsed.confidence === "low" || parsed.confidence === "high" ? parsed.confidence : "medium",
       note: parsed.note ?? "Estimated from image; values may vary.",
     };
@@ -209,6 +245,7 @@ const MOCK_MEALS: MealSuggestion[] = [
 
 const MOCK_MACROS: MacroEstimate = {
   item: "Chicken salad bowl",
+  visualDescription: "A medium bowl with chopped chicken, mixed greens, tomatoes, cucumber, and creamy dressing.",
   serving: "1 medium bowl",
   calories: 420,
   proteinG: 32,
@@ -223,4 +260,10 @@ function extractJsonObject(input: string): string {
   const end = input.lastIndexOf("}");
   if (start === -1 || end === -1 || end <= start) return "{}";
   return input.slice(start, end + 1);
+}
+
+function toSafeNumber(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.round(n));
 }

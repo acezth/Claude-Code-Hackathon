@@ -50,6 +50,7 @@ export interface MealSuggestion {
 
 export interface MacroEstimate {
   item: string;
+  visualDescription: string;
   serving: string;
   calories: number;
   proteinG: number;
@@ -63,7 +64,7 @@ export interface GroceryItem {
   id: string;
   text: string;
   done: boolean;
-  addedBy: "user" | "fridge-scan" | "coach";
+  addedBy: "user" | "fridge-scan" | "meal-scan" | "coach";
 }
 
 export type WorkoutSport = "run" | "ride" | "swim" | "walk" | "weights" | "other";

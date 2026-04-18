@@ -47,7 +47,7 @@ export default function Groceries() {
       <div className="eyebrow">Groceries</div>
       <h1 className="h1">Your list &mdash; one place, one screen.</h1>
       <p className="lede">
-        Anything Beat spots that you&rsquo;re missing (from the fridge scan or coach) shows up here.
+        Anything Beat spots that you&rsquo;re missing (from meal scan or coach) shows up here.
       </p>
 
       <section className="card" style={{ marginTop: 20 }}>
@@ -69,7 +69,7 @@ export default function Groceries() {
           To buy <span className="muted" style={{ fontSize: 13, fontWeight: 400 }}>({todo.length})</span>
         </h2>
         {todo.length === 0 ? (
-          <div className="empty">Nothing on the list. Snap your fridge or ask the coach for a staples run.</div>
+          <div className="empty">Nothing on the list. Scan your meal or ask the coach for a staples run.</div>
         ) : (
           todo.map((i) => (
             <div key={i.id} className="grocery">

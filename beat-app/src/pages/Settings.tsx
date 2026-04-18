@@ -114,7 +114,7 @@ export default function Settings() {
           <div>
             <div style={{ fontWeight: 600 }}>OpenAI</div>
             <div className="muted" style={{ fontSize: 12 }}>
-              Scene Scan picks, fridge vision, coach replies.
+              Scene Scan picks, meal scan vision, coach replies.
             </div>
           </div>
           <div className="row" style={{ gap: 10 }}>

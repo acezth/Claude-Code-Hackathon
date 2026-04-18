@@ -182,7 +182,7 @@ a { color: inherit; }
 .store-list li.active { border-color: var(--coral); box-shadow: 0 0 0 2px rgba(255,90,54,.15); }
 .store-meta { display: flex; gap: 10px; align-items: center; color: var(--mute); font-size: 12px; }
 
-/* ============ fridge scan ============ */
+/* ============ meal scan ============ */
 .dropzone {
   border: 2px dashed var(--line); border-radius: var(--radius);
   padding: 34px 18px; text-align: center; background: #fff;
