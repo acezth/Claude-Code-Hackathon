@@ -157,6 +157,93 @@ a { color: inherit; }
   letter-spacing: .06em; text-transform: uppercase;
 }
 
+.nearby-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.nearby-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.nearby-map-frame {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  min-height: 250px;
+  background: #f3ede4;
+}
+.nearby-map-frame iframe {
+  width: 100%;
+  min-height: 250px;
+  border: 0;
+  display: block;
+}
+.nearby-results-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  color: var(--mute);
+  font-size: 12px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.nearby-places-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+.nearby-places-list li {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.nearby-places-list li.active {
+  border-color: var(--coral);
+  box-shadow: 0 0 0 2px rgba(255, 90, 54, 0.12);
+}
+.nearby-place-button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 14px;
+  text-align: left;
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+  color: inherit;
+}
+.nearby-place-name {
+  font-weight: 700;
+  font-size: 15px;
+}
+.nearby-place-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  white-space: nowrap;
+}
+.nearby-place-link {
+  display: inline-flex;
+  margin: 0 14px 14px;
+  color: var(--coral);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.nearby-place-link:hover {
+  text-decoration: underline;
+}
+
 /* ============ scene scan ============ */
 .pick-list { padding: 0; margin: 0; list-style: none; }
 .pick-list li {
@@ -467,4 +554,6 @@ a { color: inherit; }
   .workout { grid-template-columns: 40px 1fr; }
   .workout-side { align-items: flex-start; grid-column: 2; }
   .workout-detail { padding-left: 0; }
+  .nearby-place-button { flex-direction: column; }
+  .nearby-place-side { align-items: flex-start; }
 }

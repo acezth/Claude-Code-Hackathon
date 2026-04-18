@@ -1,52 +1,66 @@
-import { useEffect, useState } from "react";
-import { listTodaysEvents } from "@/services/google";
-import { askCoach } from "@/services/openai";
+import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  buildWellnessMapsUrl,
+  type WellnessFinderKind,
+  listTodaysEvents,
+} from "@/services/google";
 import { listRecentWorkouts } from "@/services/strava";
-import type { CalendarEvent, CoachReply, Workout } from "@/services/types";
+import type { CalendarEvent, Workout } from "@/services/types";
 
 export default function Home() {
+  const { user } = useAuth();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [workouts, setWorkouts] = useState<Workout[]>([]);
-  const [brief, setBrief] = useState<CoachReply | null>(null);
+  const [nearbyCategory, setNearbyCategory] = useState<WellnessFinderKind>("healthy_restaurant");
+  const [searchCenter, setSearchCenter] = useState<{ lat: number; lng: number }>(FALLBACK_CENTER);
 
   useEffect(() => {
     listTodaysEvents().then(setEvents);
     listRecentWorkouts(3).then(setWorkouts);
+    refreshSearchCenter(setSearchCenter);
   }, []);
 
-  useEffect(() => {
-    if (events.length === 0) return;
-    askCoach("Give me a 2-sentence briefing for today based on my schedule.", { events, workouts }).then(setBrief);
-  }, [events, workouts]);
-
   const now = new Date();
-  const hour = now.getHours();
-  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const displayName = user?.name ?? "there";
+  const mapsUrl = useMemo(() => {
+    return buildWellnessMapsUrl({
+      lat: searchCenter.lat,
+      lng: searchCenter.lng,
+      category: nearbyCategory,
+    });
+  }, [nearbyCategory, searchCenter]);
 
   return (
     <>
       <div className="eyebrow">Today · {now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</div>
-      <h1 className="h1">{greeting}, Suleyman.</h1>
+      <h1 className="h1">Welcome, {displayName}.</h1>
       <p className="lede">Here&rsquo;s your day, and the one decision Beat has pre-made for you.</p>
 
       <div className="grid-2" style={{ marginTop: 24 }}>
-        {/* Producer brief */}
-        <section className="card">
+        <section className="card nearby-card">
           <div className="row" style={{ justifyContent: "space-between" }}>
-            <h2 className="h2">The Producer</h2>
-            <span className="pill">LIVE</span>
+            <h2 className="h2">Nearby Options</h2>
+            <span className="pill">MAPS</span>
           </div>
-          {brief ? (
-            <p style={{ fontFamily: "var(--font-serif)", fontSize: 20, lineHeight: 1.35 }}>
-              &ldquo;{brief.text}&rdquo;
-            </p>
-          ) : (
-            <p className="muted">Thinking through your day&hellip;</p>
-          )}
-          <div className="row" style={{ marginTop: 8 }}>
-            <a className="btn sm" href="/scan">Scene Scan</a>
-            <a className="btn sm ghost" href="/coach">Ask coach</a>
+
+          <div className="nearby-toolbar">
+            <label style={{ flex: 1, minWidth: 220 }}>
+              <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Show me</div>
+              <select
+                className="select"
+                value={nearbyCategory}
+                onChange={(event) => setNearbyCategory(event.target.value as WellnessFinderKind)}
+              >
+                <option value="healthy_restaurant">Healthy restaurants</option>
+                <option value="gym">Gym locations</option>
+              </select>
+            </label>
           </div>
+
+          <a className="btn sm" href={mapsUrl} target="_blank" rel="noreferrer">
+            Open in Google Maps
+          </a>
         </section>
 
         {/* Today's schedule */}
@@ -119,6 +133,34 @@ function Anchor({ n, title, status, meta }: { n: string; title: string; status: 
       <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{meta}</div>
       <div style={{ marginTop: 10, color, fontSize: 12, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase" }}>{label}</div>
     </div>
+  );
+}
+
+const FALLBACK_CENTER = { lat: 40.758, lng: -73.9855 };
+
+function refreshSearchCenter(
+  setSearchCenter: (value: { lat: number; lng: number }) => void
+): void {
+  if (typeof navigator === "undefined" || !navigator.geolocation) {
+    setSearchCenter(FALLBACK_CENTER);
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      setSearchCenter({
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+      });
+    },
+    () => {
+      setSearchCenter(FALLBACK_CENTER);
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 12000,
+      maximumAge: 300000,
+    }
   );
 }
 
