@@ -177,7 +177,17 @@ export async function estimateMacrosFromImage(imageDataUrl: string): Promise<Mac
   }
 }
 
-export async function askCoach(question: string, ctx?: { events?: CalendarEvent[]; workouts?: Workout[] }): Promise<CoachReply> {
+export async function askCoach(
+  question: string,
+  ctx?: {
+    events?: CalendarEvent[];
+    workouts?: Workout[];
+    history?: { role: "you" | "beat"; text: string }[];
+    plan?: CoachMealPlan | null;
+    groceryList?: string[];
+    inventory?: string[];
+  }
+): Promise<CoachReply> {
   if (!getActiveProvider()) {
     return {
       text:
@@ -187,18 +197,42 @@ export async function askCoach(question: string, ctx?: { events?: CalendarEvent[
   }
 
   try {
-    const contextLine = ctx?.events
-      ? `Upcoming: ${ctx.events.slice(0, 3).map((event) => event.title).join("; ")}.`
-      : "";
+    const contextLines = [
+      buildCoachContext(ctx),
+      buildCoachPlanContext(ctx?.plan),
+      buildCoachInventoryContext(ctx?.inventory, ctx?.groceryList),
+      buildCoachHistoryContext(ctx?.history),
+    ]
+      .filter(Boolean)
+      .join("\n");
+
     const raw = await callChat([
       {
         role: "system",
         content:
-          "You are Beat - a health coach for a national correspondent. You are direct, imperative, and kind. Keep replies under 4 sentences. Prefer concrete actions over theory.",
+          [
+            "You are Beat - a health coach for a national correspondent.",
+            "You are direct, imperative, and kind.",
+            "Keep replies under 4 sentences. Prefer concrete actions over theory.",
+            'Return valid JSON only with fields: "text", "suggestions", "groceryItems".',
+            "suggestions must be a short array of optional follow-up prompts.",
+            "groceryItems must be an array of exact grocery items to add when the user asks to add, build, or update a grocery list.",
+            "If the user is not asking to add groceries, return an empty groceryItems array.",
+          ].join(" "),
       },
-      { role: "user", content: `${contextLine}\n\nUser: ${question}` },
+      { role: "user", content: `${contextLines}\n\nUser: ${question}`.trim() },
     ]);
-    return { text: raw };
+
+    const parsed = JSON.parse(extractJsonObject(raw)) as Partial<CoachReply>;
+    return {
+      text: typeof parsed.text === "string" && parsed.text.trim() ? parsed.text.trim() : raw,
+      suggestions: Array.isArray(parsed.suggestions)
+        ? parsed.suggestions.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+        : [],
+      groceryItems: Array.isArray(parsed.groceryItems)
+        ? parsed.groceryItems.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+        : [],
+    };
   } catch {
     return { text: "Beat is offline right now. Try again in a sec." };
   }
@@ -414,6 +448,29 @@ function buildCoachContext(ctx?: { events?: CalendarEvent[]; workouts?: Workout[
     : "Recent workouts: none loaded.";
 
   return `${eventLine}\n${workoutLine}`;
+}
+
+function buildCoachPlanContext(plan?: CoachMealPlan | null): string {
+  if (!plan?.meals?.length) return "Current meal options: none loaded.";
+  return `Current meal options: ${plan.meals
+    .map((meal) => `${meal.title} [ingredients: ${meal.ingredients.join(", ")}]`)
+    .join("; ")}.`;
+}
+
+function buildCoachInventoryContext(inventory?: string[], groceryList?: string[]): string {
+  const pantryLine = inventory?.length
+    ? `Already have: ${inventory.join(", ")}.`
+    : "Already have: none tracked.";
+  const groceryLine = groceryList?.length
+    ? `Current grocery list: ${groceryList.join(", ")}.`
+    : "Current grocery list: empty.";
+  return `${pantryLine}\n${groceryLine}`;
+}
+
+function buildCoachHistoryContext(history?: { role: "you" | "beat"; text: string }[]): string {
+  if (!history?.length) return "";
+  const recent = history.slice(-6).map((message) => `${message.role.toUpperCase()}: ${message.text}`);
+  return `Recent conversation:\n${recent.join("\n")}`;
 }
 
 function mockCoachMealPlan(

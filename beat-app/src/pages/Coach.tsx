@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { appendBeatContext, readBeatContext } from "@/services/beatContext";
 import { listTodaysEvents } from "@/services/google";
+import { mergeIntoShoppingList, readGroceries, writeGroceries } from "@/services/groceries";
 import { askCoach, suggestCoachMeals } from "@/services/openai";
 import { listRecentWorkouts } from "@/services/strava";
 import type {
@@ -49,7 +51,12 @@ const DEFAULT_PREFERENCES: CoachMealPreferences = {
   budget: "medium",
 };
 
-export default function Coach() {
+interface CoachProps {
+  showLessons?: boolean;
+  showPlanner?: boolean;
+}
+
+export default function Coach({ showLessons = true, showPlanner = true }: CoachProps) {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [q, setQ] = useState("");
@@ -60,6 +67,8 @@ export default function Coach() {
   const [planning, setPlanning] = useState(false);
   const [notice, setNotice] = useState("");
   const [planDirty, setPlanDirty] = useState(() => !samePreferences(loadStoredPlan().preferences, loadPreferences()));
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+  const chatShellRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     listTodaysEvents().then(setEvents);
@@ -75,22 +84,77 @@ export default function Coach() {
   }, [messages]);
 
   useEffect(() => {
-    const stored = loadStoredPlan();
-    setPlanDirty(!samePreferences(stored.preferences, preferences));
-  }, [preferences]);
+    const node = chatShellRef.current;
+    if (!node) return;
+
+    const updateJumpState = () => {
+      const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight;
+      setShowJumpToBottom(distanceFromBottom > 48);
+    };
+
+    updateJumpState();
+    node.addEventListener("scroll", updateJumpState);
+    return () => node.removeEventListener("scroll", updateJumpState);
+  }, [messages, busy]);
 
   useEffect(() => {
-    if (!plan) void generatePlan();
-  }, [plan]);
+    scrollCoachChatToBottom();
+  }, [messages, busy]);
+
+  useEffect(() => {
+    if (!showPlanner) {
+      setPlanDirty(false);
+      return;
+    }
+    const stored = loadStoredPlan();
+    setPlanDirty(!samePreferences(stored.preferences, preferences));
+  }, [preferences, showPlanner]);
+
+  useEffect(() => {
+    if (showPlanner && !plan) void generatePlan();
+  }, [plan, showPlanner]);
+
+  function loadGroceryState() {
+    const existing = readGroceries();
+
+    return {
+      existing,
+      groceryList: existing.filter((item) => !item.inInventory).map((item) => item.text),
+      inventory: existing.filter((item) => item.inInventory).map((item) => item.text),
+    };
+  }
 
   async function send(nextQuestion?: string) {
     const question = (nextQuestion ?? q).trim();
     if (!question) return;
-    setMessages((m) => [...m, { role: "you", text: question }]);
+    const nextUserMessage = { role: "you" as const, text: question };
+    const nextSharedHistory = [
+      ...readBeatContext().map((message) => ({
+        role: message.role === "user" ? ("you" as const) : ("beat" as const),
+        text: message.text,
+      })),
+      nextUserMessage,
+    ];
+    setMessages((m) => [...m, nextUserMessage]);
     setQ("");
     setBusy(true);
     try {
-      const r = await askCoach(question, { events, workouts });
+      const groceryState = loadGroceryState();
+      const r = await askCoach(question, {
+        events,
+        workouts,
+        history: nextSharedHistory,
+        plan,
+        groceryList: groceryState.groceryList,
+        inventory: groceryState.inventory,
+      });
+      if (r.groceryItems?.length) {
+        addItemsToList(r.groceryItems, "coach");
+      }
+      appendBeatContext([
+        { role: "user", text: question, source: "coach" },
+        { role: "assistant", text: r.text, source: "coach" },
+      ]);
       setMessages((m) => [...m, { role: "beat", text: r.text }]);
     } finally {
       setBusy(false);
@@ -114,21 +178,15 @@ export default function Coach() {
     setPreferences((prev) => ({ ...prev, [key]: value }));
   }
 
-  function addMissingToList(items: string[]) {
-    const existing = JSON.parse(localStorage.getItem("beat.groceries") || "[]") as {
-      id: string;
-      text: string;
-      done: boolean;
-      addedBy: string;
-    }[];
-    const seen = new Set(existing.map((item) => item.text.toLowerCase()));
-    const unique = items.filter((item) => !seen.has(item.toLowerCase()));
-    const next = [
-      ...existing,
-      ...unique.map((text) => ({ id: crypto.randomUUID(), text, done: false, addedBy: "coach" as const })),
-    ];
-    localStorage.setItem("beat.groceries", JSON.stringify(next));
-    setNotice(unique.length === 0 ? "Those staples are already on your grocery list." : `${unique.length} item(s) added to groceries.`);
+  function addItemsToList(items: string[], source: "coach" | "user" = "coach") {
+    const existing = readGroceries();
+    const { items: next, addedCount } = mergeIntoShoppingList(existing, items, source);
+    writeGroceries(next);
+    setNotice(
+      addedCount === 0
+        ? "Those items are already on your grocery list."
+        : `${addedCount} item(s) added to groceries.`,
+    );
   }
 
   function useFollowUp(text: string) {
@@ -136,16 +194,25 @@ export default function Coach() {
     void send(text);
   }
 
+  function scrollCoachChatToBottom() {
+    const node = chatShellRef.current;
+    if (!node) return;
+    node.scrollTo({ top: node.scrollHeight, behavior: "smooth" });
+  }
+
   const nextEvent = events[0];
 
   return (
     <>
       <div className="eyebrow">Coach</div>
-      <h1 className="h1">Meal advice that works in real life.</h1>
+      <h1 className="h1">{showPlanner ? "Meal advice that works in real life." : "Coach that works in real life."}</h1>
       <p className="lede">
-        Beat now gives you three meal options based on your preferences, your cooking setup, and what the next few hours actually look like.
+        {showPlanner
+          ? "Beat now gives you three meal options based on your preferences, your cooking setup, and what the next few hours actually look like."
+          : "Ask detailed questions about your routine, meals, energy, and schedule constraints. Beat keeps it practical."}
       </p>
 
+      {showPlanner && (
       <section className="card coach-planner" style={{ marginTop: 20 }}>
         <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
@@ -160,10 +227,10 @@ export default function Coach() {
         </div>
 
         <div className="coach-form-grid" style={{ marginTop: 16 }}>
-          <label>
+          <label className="coach-field-wide">
             <div className="coach-field-label">Goal</div>
-            <input
-              className="input"
+            <textarea
+              className="textarea"
               value={preferences.goal}
               onChange={(e) => updatePreference("goal", e.target.value)}
               placeholder="Stay sharp through a long filing day"
@@ -234,19 +301,19 @@ export default function Coach() {
               <option value="high">High</option>
             </select>
           </label>
-          <label>
+          <label className="coach-field-wide">
             <div className="coach-field-label">Allergies or restrictions</div>
-            <input
-              className="input"
+            <textarea
+              className="textarea"
               value={preferences.allergies}
               onChange={(e) => updatePreference("allergies", e.target.value)}
               placeholder="Peanuts, dairy, shellfish"
             />
           </label>
-          <label>
+          <label className="coach-field-wide">
             <div className="coach-field-label">Foods you dislike</div>
-            <input
-              className="input"
+            <textarea
+              className="textarea"
               value={preferences.dislikes}
               onChange={(e) => updatePreference("dislikes", e.target.value)}
               placeholder="Mushrooms, tuna, mayo"
@@ -291,7 +358,7 @@ export default function Coach() {
                   <div style={{ fontSize: 15 }}>{plan.summary}</div>
                 </div>
                 {plan.groceryStaples.length > 0 && (
-                  <button className="btn sm ghost" onClick={() => addMissingToList(plan.groceryStaples)}>
+                  <button className="btn sm ghost" onClick={() => addItemsToList(plan.groceryStaples, "coach")}>
                     Add staples to groceries
                   </button>
                 )}
@@ -324,9 +391,9 @@ export default function Coach() {
                       {meal.missing.length > 0 && <span className="tag warn">+{meal.missing.length} to buy</span>}
                     </div>
                     <div className="row" style={{ marginTop: 14 }}>
-                      {meal.missing.length > 0 ? (
-                        <button className="btn sm" onClick={() => addMissingToList(meal.missing)}>
-                          Add missing items
+                      {meal.ingredients.length > 0 ? (
+                        <button className="btn sm" onClick={() => addItemsToList(meal.ingredients, "coach")}>
+                          Add ingredients to groceries
                         </button>
                       ) : (
                         <span className="tag go">Ready now</span>
@@ -358,11 +425,21 @@ export default function Coach() {
           )}
         </div>
       </section>
+      )}
 
-      <div className="grid-2" style={{ marginTop: 20, alignItems: "start" }}>
+      <div
+        className={showLessons ? "grid-2" : ""}
+        style={{
+          marginTop: 20,
+          alignItems: "start",
+          display: "grid",
+          gridTemplateColumns: showLessons ? undefined : "1fr",
+          gap: 18,
+        }}
+      >
         <section className="card">
           <h2 className="h2">Ask the coach</h2>
-          <div className="coach-chat-shell">
+          <div ref={chatShellRef} className="coach-chat-shell">
             {messages.map((m, i) => (
               <div key={i} style={{ marginBottom: 10 }}>
                 <div className="coach-message-role" data-role={m.role}>
@@ -373,6 +450,11 @@ export default function Coach() {
             ))}
             {busy && <div className="muted" style={{ fontSize: 13 }}>Beat is thinking...</div>}
           </div>
+          {showJumpToBottom && (
+            <button className="btn sm ghost" style={{ marginTop: 10 }} onClick={scrollCoachChatToBottom}>
+              Jump to bottom
+            </button>
+          )}
           <div className="row" style={{ marginTop: 10 }}>
             <input
               className="input"
@@ -386,21 +468,23 @@ export default function Coach() {
           </div>
         </section>
 
-        <section>
-          <h2 className="h2">3 smart health facts for today</h2>
-          {LESSONS.map((l) => (
-            <div key={l.id} className="lesson">
-              <div>
-                <div className="row" style={{ gap: 8 }}>
-                  <span className="tag">{l.tag}</span>
-                  <span className="time">{l.minutes} min read</span>
+        {showLessons && (
+          <section>
+            <h2 className="h2">3 smart health facts for today</h2>
+            {LESSONS.map((l) => (
+              <div key={l.id} className="lesson">
+                <div>
+                  <div className="row" style={{ gap: 8 }}>
+                    <span className="tag">{l.tag}</span>
+                    <span className="time">{l.minutes} min read</span>
+                  </div>
+                  <div style={{ fontFamily: "var(--font-serif)", fontSize: 18, marginTop: 6 }}>{l.title}</div>
+                  <div style={{ fontSize: 13, color: "var(--ink-2)", marginTop: 4 }}>{l.body}</div>
                 </div>
-                <div style={{ fontFamily: "var(--font-serif)", fontSize: 18, marginTop: 6 }}>{l.title}</div>
-                <div style={{ fontSize: 13, color: "var(--ink-2)", marginTop: 4 }}>{l.body}</div>
               </div>
-            </div>
-          ))}
-        </section>
+            ))}
+          </section>
+        )}
       </div>
     </>
   );

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { mergeIntoShoppingList, readGroceries, writeGroceries } from "@/services/groceries";
 import { estimateMacrosFromImage, MACRO_MIN_CONFIDENCE_PCT, suggestMealsFromFridge } from "@/services/openai";
 import type { MacroEstimate, MealSuggestion } from "@/services/types";
 
@@ -37,23 +38,14 @@ export default function FridgeScan() {
   }
 
   function addMissingToList(items: string[]) {
-    const existing = JSON.parse(localStorage.getItem("beat.groceries") || "[]") as {
-      id: string;
-      text: string;
-      done: boolean;
-      addedBy: string;
-    }[];
-    const next = [
-      ...existing,
-      ...items.map((text) => ({
-        id: crypto.randomUUID(),
-        text,
-        done: false,
-        addedBy: "meal-scan" as const,
-      })),
-    ];
-    localStorage.setItem("beat.groceries", JSON.stringify(next));
-    alert(`${items.length} item(s) added to your grocery list.`);
+    const existing = readGroceries();
+    const { items: next, addedCount } = mergeIntoShoppingList(existing, items, "meal-scan");
+    writeGroceries(next);
+    alert(
+      addedCount === 0
+        ? "Those items are already on your grocery list."
+        : `${addedCount} item(s) added to your grocery list.`,
+    );
   }
 
   return (

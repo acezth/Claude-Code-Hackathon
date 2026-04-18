@@ -66,6 +66,8 @@ export interface GroceryItem {
   text: string;
   done: boolean;
   addedBy: "user" | "fridge-scan" | "meal-scan" | "coach";
+  inInventory?: boolean;
+  purchasedAt?: string;
 }
 
 export type WorkoutSport = "run" | "ride" | "swim" | "walk" | "weights" | "other";
@@ -250,6 +252,7 @@ export interface Lesson {
 export interface CoachReply {
   text: string;
   suggestions?: string[];
+  groceryItems?: string[];
 }
 
 export interface CoachMealPreferences {

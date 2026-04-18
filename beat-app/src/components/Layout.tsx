@@ -2,13 +2,12 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 
 const NAV: { to: string; label: string; icon: string }[] = [
-  { to: "/",           label: "Today",       icon: "◎" },
-  { to: "/scan",       label: "Scene Scan",  icon: "📷" },
-  { to: "/fridge",     label: "Meal Scan",   icon: "🍽️" },
-  { to: "/groceries",  label: "Groceries",   icon: "🛒" },
-  { to: "/activity",   label: "Activity",    icon: "⚡" },
-  { to: "/coach",      label: "Coach",       icon: "🧭" },
-  { to: "/settings",   label: "Settings",    icon: "⚙" },
+  { to: "/",         label: "Today",      icon: "◎" },
+  { to: "/scan",     label: "Scene Scan", icon: "📷" },
+  { to: "/fridge",   label: "Meal Scan",  icon: "🍽️" },
+  { to: "/eat",      label: "Eat",        icon: "🍽️" },
+  { to: "/activity", label: "Activity",   icon: "⚡" },
+  { to: "/settings", label: "Settings",   icon: "⚙" },
 ];
 
 export default function Layout() {
@@ -74,3 +73,4 @@ export default function Layout() {
     </div>
   );
 }
+

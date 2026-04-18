@@ -4,9 +4,8 @@ import RequireAuth from "./components/RequireAuth";
 import Home from "./pages/Home";
 import SceneScan from "./pages/SceneScan";
 import FridgeScan from "./pages/FridgeScan";
-import Groceries from "./pages/Groceries";
 import Activity from "./pages/Activity";
-import Coach from "./pages/Coach";
+import Eat from "./pages/Eat";
 import Settings from "./pages/Settings";
 import Login from "./pages/Login";
 
@@ -24,9 +23,10 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/scan" element={<SceneScan />} />
         <Route path="/fridge" element={<FridgeScan />} />
-        <Route path="/groceries" element={<Groceries />} />
+        <Route path="/eat" element={<Eat />} />
+        <Route path="/groceries" element={<Navigate to="/eat" replace />} />
         <Route path="/activity" element={<Activity />} />
-        <Route path="/coach" element={<Coach />} />
+        <Route path="/coach" element={<Navigate to="/eat" replace />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

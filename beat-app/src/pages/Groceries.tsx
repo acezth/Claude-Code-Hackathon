@@ -1,23 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
+import {
+  GROCERY_STORAGE_KEY,
+  GROCERY_SYNC_EVENT,
+  readGroceries,
+  writeGroceries,
+} from "@/services/groceries";
 import type { GroceryItem, Store } from "@/services/types";
 
-// ---------- env keys --------------------------------------------------------
-// Read directly from Vite env so this page is self-contained.
 const OPENAI_KEY = (import.meta.env.VITE_OPENAI_API_KEY as string | undefined) ?? "";
 const MAPS_KEY = (import.meta.env.VITE_GOOGLE_MAPS_KEY as string | undefined) ?? "";
 const OPENAI_MODEL = (import.meta.env.VITE_OPENAI_MODEL as string | undefined) ?? "gpt-4o-mini";
 
-// ---------- storage keys ----------------------------------------------------
-const GROC_KEY = "beat.groceries";
-const PANTRY_KEY = "beat.pantry";
-const CHAT_KEY = "beat.grocery-chat";
-
-// ---------- local types -----------------------------------------------------
-interface PantryItem {
-  id: string;
-  text: string;
-  addedAt: string;
-}
+const MEAL_INPUT_KEY = "beat.grocery-meal-input";
+const MEAL_PLAN_KEY = "beat.grocery-meal-plan";
 
 interface PlanMeal {
   name: string;
@@ -32,14 +27,6 @@ interface GroceryPlan {
   shoppingList: { text: string; category?: string }[];
 }
 
-interface ChatMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  plan?: GroceryPlan;
-}
-
-// ---------- localStorage helpers --------------------------------------------
 function loadJSON<T>(key: string, fallback: T): T {
   try {
     return JSON.parse(localStorage.getItem(key) || "null") ?? fallback;
@@ -47,56 +34,48 @@ function loadJSON<T>(key: string, fallback: T): T {
     return fallback;
   }
 }
+
 function saveJSON(key: string, value: unknown) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-// ---------- quick prompts ---------------------------------------------------
-const QUICK_PROMPTS = [
-  "Plan 4 dinners for this week",
-  "Something quick for tonight",
-  "Five grab-and-go breakfasts",
-  "High-protein, low-bloat for camera days",
-];
+function sameGroceries(a: GroceryItem[], b: GroceryItem[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((item, index) => {
+    const other = b[index];
+    return (
+      item.id === other.id &&
+      item.text === other.text &&
+      item.done === other.done &&
+      item.addedBy === other.addedBy &&
+      Boolean(item.inInventory) === Boolean(other.inInventory) &&
+      (item.purchasedAt ?? "") === (other.purchasedAt ?? "")
+    );
+  });
+}
 
-// ---------- page ------------------------------------------------------------
-export default function Groceries() {
+export default function Groceries({ mode = "full" }: { mode?: "full" | "cook-only" }) {
   const [items, setItems] = useState<GroceryItem[]>([]);
-  const [pantry, setPantry] = useState<PantryItem[]>([]);
-  const [chat, setChat] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [pantryInput, setPantryInput] = useState("");
-  const [chatInput, setChatInput] = useState("");
+  const [inventoryInput, setInventoryInput] = useState("");
+  const [mealInput, setMealInput] = useState("");
+  const [generatedPlan, setGeneratedPlan] = useState<GroceryPlan | null>(null);
   const [stores, setStores] = useState<Store[]>([]);
   const [thinking, setThinking] = useState(false);
-  const [locStatus, setLocStatus] = useState<
-    "idle" | "asking" | "ok" | "denied" | "no-key"
-  >("idle");
-  const [placesStatus, setPlacesStatus] = useState<
-    "idle" | "loading" | "ok" | "error"
-  >("idle");
+  const [locStatus, setLocStatus] = useState<"idle" | "asking" | "ok" | "denied" | "no-key">("idle");
+  const [placesStatus, setPlacesStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
   const [placesError, setPlacesError] = useState<string>("");
-  const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Bootstrap.
   useEffect(() => {
-    setItems(loadJSON<GroceryItem[]>(GROC_KEY, []));
-    setPantry(loadJSON<PantryItem[]>(PANTRY_KEY, []));
-    const existing = loadJSON<ChatMessage[]>(CHAT_KEY, []);
-    if (existing.length > 0) {
-      setChat(existing);
-    } else {
-      setChat([
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content:
-            "I'm your grocery coach. Tell me what you want to eat — a week plan, a quick dinner, breakfasts — and I'll build the list and route it to stores near you.",
-        },
-      ]);
-    }
+    const syncItems = () =>
+      setItems((prev) => {
+        const next = readGroceries();
+        return sameGroceries(prev, next) ? prev : next;
+      });
+    syncItems();
+    setMealInput(loadJSON<string>(MEAL_INPUT_KEY, ""));
+    setGeneratedPlan(loadJSON<GroceryPlan | null>(MEAL_PLAN_KEY, null));
 
-    // Location + Places.
     if (!MAPS_KEY) {
       setLocStatus("no-key");
       return;
@@ -111,7 +90,6 @@ export default function Groceries() {
             .then((results) => {
               setStores(results);
               setPlacesStatus("ok");
-              // eslint-disable-next-line no-console
               console.log(
                 `[places] returned ${results.length} store(s) within 10 mi of ${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`,
               );
@@ -131,172 +109,205 @@ export default function Groceries() {
     } else {
       setLocStatus("denied");
     }
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === GROCERY_STORAGE_KEY) syncItems();
+    };
+    const onGroceriesUpdated = () => syncItems();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") syncItems();
+    };
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener(GROCERY_SYNC_EVENT, onGroceriesUpdated);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(GROCERY_SYNC_EVENT, onGroceriesUpdated);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, []);
 
-  // Persist.
   useEffect(() => {
-    saveJSON(GROC_KEY, items);
+    writeGroceries(items);
   }, [items]);
-  useEffect(() => {
-    saveJSON(PANTRY_KEY, pantry);
-  }, [pantry]);
-  useEffect(() => {
-    saveJSON(CHAT_KEY, chat);
-  }, [chat]);
 
-  // Auto-scroll chat.
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [chat, thinking]);
+    saveJSON(MEAL_INPUT_KEY, mealInput);
+  }, [mealInput]);
 
-  // ---------- list ops ------------------------------------------------------
+  useEffect(() => {
+    saveJSON(MEAL_PLAN_KEY, generatedPlan);
+  }, [generatedPlan]);
+
   function addItem(text: string, addedBy: GroceryItem["addedBy"] = "user") {
     const clean = text.trim();
     if (!clean) return;
     setItems((prev) => {
-      if (prev.some((i) => i.text.toLowerCase() === clean.toLowerCase()))
-        return prev;
+      if (prev.some((item) => item.text.toLowerCase() === clean.toLowerCase())) {
+        return prev.map((item) =>
+          item.text.toLowerCase() === clean.toLowerCase()
+            ? { ...item, done: false, inInventory: false, purchasedAt: undefined }
+            : item,
+        );
+      }
       return [
         ...prev,
-        { id: crypto.randomUUID(), text: clean, done: false, addedBy },
+        {
+          id: crypto.randomUUID(),
+          text: clean,
+          done: false,
+          addedBy,
+          inInventory: false,
+        },
       ];
     });
   }
+
   function onAddItemClick() {
     addItem(input, "user");
     setInput("");
   }
+
   function toggleItem(id: string) {
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, done: !item.done } : item)));
+  }
+
+  function removeItem(id: string) {
+    setItems((prev) => prev.filter((item) => item.id !== id));
+  }
+
+  function markPickedAsPurchased() {
+    const now = new Date().toISOString();
     setItems((prev) =>
-      prev.map((i) => (i.id === id ? { ...i, done: !i.done } : i)),
+      prev.map((item) =>
+        item.done
+          ? { ...item, done: false, inInventory: true, purchasedAt: item.purchasedAt ?? now }
+          : item,
+      ),
     );
   }
-  function removeItem(id: string) {
-    setItems((prev) => prev.filter((i) => i.id !== id));
-  }
 
-  // Move checked items into the pantry — "you bought them, you have them."
-  function movePickedToPantry() {
-    const picked = items.filter((i) => i.done);
-    const now = new Date().toISOString();
-    setPantry((p) => [
-      ...p,
-      ...picked
-        .filter(
-          (d) =>
-            !p.some((x) => x.text.toLowerCase() === d.text.toLowerCase()),
-        )
-        .map((d) => ({ id: crypto.randomUUID(), text: d.text, addedAt: now })),
-    ]);
-    setItems((prev) => prev.filter((i) => !i.done));
-  }
-
-  // ---------- pantry ops ----------------------------------------------------
-  function addPantry(text: string) {
+  function addInventoryItem(text: string) {
     const clean = text.trim();
     if (!clean) return;
-    setPantry((prev) => {
-      if (prev.some((p) => p.text.toLowerCase() === clean.toLowerCase()))
-        return prev;
+    setItems((prev) => {
+      if (prev.some((item) => item.text.toLowerCase() === clean.toLowerCase())) {
+        return prev.map((item) =>
+          item.text.toLowerCase() === clean.toLowerCase()
+            ? {
+                ...item,
+                done: false,
+                inInventory: true,
+                purchasedAt: item.purchasedAt ?? new Date().toISOString(),
+              }
+            : item,
+        );
+      }
       return [
         {
           id: crypto.randomUUID(),
           text: clean,
-          addedAt: new Date().toISOString(),
+          done: false,
+          addedBy: "user",
+          inInventory: true,
+          purchasedAt: new Date().toISOString(),
         },
         ...prev,
       ];
     });
   }
-  function onAddPantry() {
-    addPantry(pantryInput);
-    setPantryInput("");
-  }
-  function removePantry(id: string) {
-    setPantry((prev) => prev.filter((p) => p.id !== id));
+
+  function onAddInventory() {
+    addInventoryItem(inventoryInput);
+    setInventoryInput("");
   }
 
-  // ---------- chat ----------------------------------------------------------
-  async function sendChat(text: string) {
-    const clean = text.trim();
-    if (!clean || thinking) return;
-    const userMsg: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: "user",
-      content: clean,
-    };
-    const nextHistory = [...chat, userMsg];
-    setChat(nextHistory);
-    setChatInput("");
-    setThinking(true);
-    try {
-      const { reply, plan } = await callGroceryCoach({
-        request: clean,
-        history: nextHistory,
-        pantry: pantry.map((p) => p.text),
-        shoppingList: items.map((i) => i.text),
-      });
-      setChat((prev) => [
-        ...prev,
-        { id: crypto.randomUUID(), role: "assistant", content: reply, plan },
-      ]);
-    } catch (err) {
-      console.warn("[openai] error", err);
-      setChat((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: OPENAI_KEY
-            ? "The coach hit an error talking to OpenAI. Check the dev console."
-            : "No OpenAI key is set. Add VITE_OPENAI_API_KEY to beat-app/.env.local and restart `npm run dev`.",
-        },
-      ]);
-    } finally {
-      setThinking(false);
-    }
+  function removeInventoryItem(id: string) {
+    setItems((prev) => prev.filter((item) => item.id !== id));
+  }
+
+  function moveInventoryBackToList(id: string) {
+    setItems((prev) =>
+      prev.map((item) =>
+        item.id === id ? { ...item, done: false, inInventory: false, purchasedAt: undefined } : item,
+      ),
+    );
   }
 
   function addAllFromPlan(plan: GroceryPlan) {
     plan.shoppingList.forEach((entry) => addItem(entry.text, "coach"));
   }
 
-  function clearChat() {
-    setChat([
-      {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: "Fresh slate. What do you want to eat this week?",
-      },
-    ]);
+  async function generateMealFromIngredients() {
+    const clean = mealInput.trim();
+    if (!clean || thinking) return;
+    setThinking(true);
+    try {
+      const plan = await generateMealPlan({
+        ingredientsOnHand: clean,
+        pantry: inventory.map((item) => item.text),
+        shoppingList: todo.map((item) => item.text),
+      });
+      setGeneratedPlan(plan);
+    } catch (err) {
+      console.warn("[openai] error", err);
+      setGeneratedPlan({
+        summary: OPENAI_KEY
+          ? "Beat hit an error generating a meal. Check the dev console."
+          : "No OpenAI key is set. Add VITE_OPENAI_API_KEY to beat-app/.env.local and restart `npm run dev`.",
+        meals: [],
+        shoppingList: [],
+      });
+    } finally {
+      setThinking(false);
+    }
   }
 
-  // ---------- derived -------------------------------------------------------
-  const todo = useMemo(() => items.filter((i) => !i.done), [items]);
-  const done = useMemo(() => items.filter((i) => i.done), [items]);
+  function useInventoryAsIngredients() {
+    setMealInput(inventory.map((item) => item.text).join(", "));
+  }
 
-  // ---------- render --------------------------------------------------------
+  function clearMealPlanner() {
+    setMealInput("");
+    setGeneratedPlan(null);
+  }
+
+  const shoppingItems = useMemo(() => items.filter((item) => !item.inInventory), [items]);
+  const todo = useMemo(() => shoppingItems.filter((item) => !item.done), [shoppingItems]);
+  const done = useMemo(() => shoppingItems.filter((item) => item.done), [shoppingItems]);
+  const inventory = useMemo(
+    () =>
+      items
+        .filter((item) => item.inInventory)
+        .sort((a, b) => (b.purchasedAt ?? "").localeCompare(a.purchasedAt ?? "")),
+    [items],
+  );
+
   return (
     <>
-      <div className="eyebrow">Groceries</div>
-      <h1 className="h1">Eat with a plan. Shop without thinking.</h1>
-      <p className="lede">
-        Ask the coach what to cook. It builds the list, routes it to stores near
-        you, and keeps track of what you&rsquo;ve already bought.
-      </p>
+      {mode === "full" && (
+        <>
+          <div className="eyebrow">Groceries</div>
+          <h1 className="h1">Eat with a plan. Shop without thinking.</h1>
+          <p className="lede">
+            Type the ingredients you already have, generate a meal from them, then fill
+            the shopping list only for what is missing.
+          </p>
+        </>
+      )}
 
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 1fr)",
+          gridTemplateColumns: mode === "full" ? "minmax(0, 1.4fr) minmax(0, 1fr)" : "1fr",
           gap: 18,
           marginTop: 18,
           alignItems: "start",
         }}
       >
-        {/* ============= LEFT: coach + list ============= */}
         <div>
-          {/* Coach */}
           <section className="card">
             <div
               className="row"
@@ -307,98 +318,135 @@ export default function Groceries() {
             >
               <div>
                 <h2 className="h2" style={{ margin: 0 }}>
-                  Grocery coach
+                  Cook from what you have
                 </h2>
                 <div className="muted" style={{ marginTop: 4 }}>
                   {OPENAI_KEY
-                    ? "Ask for a week plan, a quick dinner, or an ingredient swap."
-                    : "Set VITE_OPENAI_API_KEY in .env.local to turn on the real coach."}
+                    ? "Paste ingredients on hand and Beat will turn them into a practical meal."
+                    : "Set VITE_OPENAI_API_KEY in .env.local to turn on meal generation."}
                 </div>
               </div>
-              <button className="btn sm ghost" onClick={clearChat}>
-                New chat
+              <button className="btn sm ghost" onClick={clearMealPlanner}>
+                Clear
               </button>
             </div>
 
-            <div
-              style={{
-                marginTop: 14,
-                maxHeight: 420,
-                minHeight: 220,
-                overflowY: "auto",
-                padding: "10px 4px",
-                border: "1px solid var(--line)",
-                borderRadius: 12,
-                background: "#fbf7ef",
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
-              }}
-            >
-              {chat.map((m) => (
-                <ChatBubble
-                  key={m.id}
-                  msg={m}
-                  onAddAll={() => m.plan && addAllFromPlan(m.plan)}
-                />
-              ))}
-              {thinking && (
-                <div style={{ display: "flex", justifyContent: "flex-start" }}>
-                  <div style={bubbleStyle(false)}>
-                    <ThinkingDots />
-                  </div>
-                </div>
-              )}
-              <div ref={chatEndRef} />
-            </div>
-
-            <div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-              {QUICK_PROMPTS.map((p) => (
-                <button
-                  key={p}
-                  className="pill"
-                  onClick={() => sendChat(p)}
-                  disabled={thinking}
-                >
-                  {p}
-                </button>
-              ))}
+            <div style={{ marginTop: 14 }}>
+              <div className="coach-field-label">Ingredients on hand</div>
+              <textarea
+                className="textarea"
+                placeholder="e.g. eggs, spinach, feta, tomatoes, olive oil"
+                value={mealInput}
+                onChange={(e) => setMealInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !thinking) {
+                    e.preventDefault();
+                    void generateMealFromIngredients();
+                  }
+                }}
+              />
+              <div className="muted" style={{ marginTop: 8 }}>
+                Separate ingredients with commas. Press Ctrl+Enter to generate.
+              </div>
             </div>
 
             <div className="row" style={{ marginTop: 12 }}>
-              <input
-                className="input"
-                style={{ flex: 1, minWidth: 200 }}
-                placeholder="What do you want to eat?"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) =>
-                  e.key === "Enter" && !thinking && sendChat(chatInput)
-                }
-                disabled={thinking}
-              />
               <button
                 className="btn"
-                onClick={() => sendChat(chatInput)}
-                disabled={thinking || !chatInput.trim()}
+                onClick={() => void generateMealFromIngredients()}
+                disabled={thinking || !mealInput.trim()}
               >
-                Ask
+                {thinking ? "Generating..." : "Generate meal"}
+              </button>
+              <button className="btn sm ghost" onClick={useInventoryAsIngredients} disabled={inventory.length === 0}>
+                Use inventory
               </button>
             </div>
+
+            <div className="divider" />
+
+            {!generatedPlan ? (
+              <div className="empty">
+                Add ingredients to generate a meal idea and a matching shopping list.
+              </div>
+            ) : generatedPlan.meals.length === 0 ? (
+              <div className="empty">{generatedPlan.summary}</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div
+                  style={{
+                    padding: "14px 16px",
+                    borderRadius: 12,
+                    border: "1px solid var(--line)",
+                    background: "#fbf7ef",
+                  }}
+                >
+                  <div style={{ fontWeight: 700, fontSize: 15 }}>Meal plan</div>
+                  <div className="muted" style={{ marginTop: 4 }}>
+                    {generatedPlan.summary}
+                  </div>
+                </div>
+
+                {generatedPlan.meals.map((meal, index) => (
+                  <div
+                    key={`${meal.name}-${index}`}
+                    style={{
+                      border: "1px solid var(--line)",
+                      borderRadius: 12,
+                      padding: "14px 16px",
+                      background: "#fff",
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, fontSize: 16 }}>
+                      {meal.name}
+                      {meal.servings ? <span className="muted"> · {meal.servings} servings</span> : null}
+                    </div>
+                    {meal.why && (
+                      <div className="muted" style={{ marginTop: 4 }}>
+                        {meal.why}
+                      </div>
+                    )}
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 6,
+                        marginTop: 10,
+                      }}
+                    >
+                      {meal.ingredients.map((ingredient, ingredientIndex) => (
+                        <span key={`${ingredient}-${ingredientIndex}`} style={chipStyle}>
+                          {ingredient}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+
+                {generatedPlan.shoppingList.length > 0 && (
+                  <div className="row" style={{ justifyContent: "space-between" }}>
+                    <div className="muted">
+                      {generatedPlan.shoppingList.length} missing item
+                      {generatedPlan.shoppingList.length === 1 ? "" : "s"} ready for your shopping list.
+                    </div>
+                    <button className="btn sm" onClick={() => addAllFromPlan(generatedPlan)}>
+                      Add all to shopping list
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </section>
 
-          {/* Shopping list */}
+          {mode === "full" && (
           <section className="card" style={{ marginTop: 16 }}>
             <div className="row" style={{ justifyContent: "space-between" }}>
               <h2 className="h2" style={{ margin: 0 }}>
-                Shopping list{" "}
-                <span className="muted" style={{ fontSize: 13, fontWeight: 400 }}>
-                  ({todo.length} to buy)
-                </span>
+                Shopping list <span className="muted" style={{ fontSize: 13, fontWeight: 400 }}>({todo.length} to buy)</span>
               </h2>
               {done.length > 0 && (
-                <button className="btn sm ghost" onClick={movePickedToPantry}>
-                  Move {done.length} to pantry
+                <button className="btn sm ghost" onClick={markPickedAsPurchased}>
+                  Mark {done.length} as purchased
                 </button>
               )}
             </div>
@@ -407,7 +455,7 @@ export default function Groceries() {
               <input
                 className="input"
                 style={{ flex: 1, minWidth: 200 }}
-                placeholder="Add an item…"
+                placeholder="Add an item..."
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && onAddItemClick()}
@@ -421,29 +469,20 @@ export default function Groceries() {
 
             {todo.length === 0 ? (
               <div className="empty">
-                List is empty. Ask the coach for a plan, or add something
-                yourself.
+                Nothing left to buy. Generate a meal, or add something yourself.
               </div>
             ) : (
-              todo.map((i) => (
-                <div key={i.id} className="grocery">
-                  <input
-                    type="checkbox"
-                    checked={i.done}
-                    onChange={() => toggleItem(i.id)}
-                  />
-                  <span className="text">{i.text}</span>
-                  {i.addedBy !== "user" && (
+              todo.map((item) => (
+                <div key={item.id} className="grocery">
+                  <input type="checkbox" checked={item.done} onChange={() => toggleItem(item.id)} />
+                  <span className="text">{item.text}</span>
+                  {item.addedBy !== "user" && (
                     <span className="tag" style={{ marginLeft: 8 }}>
-                      {i.addedBy}
+                      {item.addedBy}
                     </span>
                   )}
-                  <button
-                    className="remove"
-                    onClick={() => removeItem(i.id)}
-                    aria-label="remove"
-                  >
-                    ×
+                  <button className="remove" onClick={() => removeItem(item.id)} aria-label="remove">
+                    x
                   </button>
                 </div>
               ))
@@ -453,76 +492,68 @@ export default function Groceries() {
               <>
                 <div className="divider" />
                 <div className="muted" style={{ fontSize: 13, marginBottom: 6 }}>
-                  Checked off — press &ldquo;Move to pantry&rdquo; above when
-                  you&rsquo;re home.
+                  Checked off items can be marked as purchased to move them into your inventory.
                 </div>
-                {done.map((i) => (
-                  <div key={i.id} className="grocery">
-                    <input
-                      type="checkbox"
-                      checked={i.done}
-                      onChange={() => toggleItem(i.id)}
-                    />
-                    <span className="text done">{i.text}</span>
-                    <button
-                      className="remove"
-                      onClick={() => removeItem(i.id)}
-                    >
-                      ×
+                {done.map((item) => (
+                  <div key={item.id} className="grocery">
+                    <input type="checkbox" checked={item.done} onChange={() => toggleItem(item.id)} />
+                    <span className="text done">{item.text}</span>
+                    <button className="remove" onClick={() => removeItem(item.id)}>
+                      x
                     </button>
                   </div>
                 ))}
               </>
             )}
           </section>
+          )}
         </div>
 
-        {/* ============= RIGHT: pantry + stores ============= */}
+        {mode === "full" && (
         <div>
-          {/* Pantry */}
           <section className="card">
             <h2 className="h2" style={{ margin: 0 }}>
-              Pantry{" "}
-              <span className="muted" style={{ fontSize: 13, fontWeight: 400 }}>
-                ({pantry.length} item{pantry.length === 1 ? "" : "s"})
-              </span>
+              Inventory <span className="muted" style={{ fontSize: 13, fontWeight: 400 }}>({inventory.length} item{inventory.length === 1 ? "" : "s"})</span>
             </h2>
             <div className="muted" style={{ marginTop: 4 }}>
-              What&rsquo;s already in your kitchen. The coach won&rsquo;t
-              duplicate these.
+              Everything you've already bought for recipes or stocked at home. Beat will avoid duplicating these.
             </div>
 
             <div className="row" style={{ marginTop: 12 }}>
               <input
                 className="input"
                 style={{ flex: 1, minWidth: 180 }}
-                placeholder="I have… (e.g. eggs)"
-                value={pantryInput}
-                onChange={(e) => setPantryInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && onAddPantry()}
+                placeholder="Already have... (e.g. eggs)"
+                value={inventoryInput}
+                onChange={(e) => setInventoryInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && onAddInventory()}
               />
-              <button className="btn" onClick={onAddPantry}>
+              <button className="btn" onClick={onAddInventory}>
                 Add
               </button>
             </div>
 
             <div className="divider" />
 
-            {pantry.length === 0 ? (
+            {inventory.length === 0 ? (
               <div className="empty">
-                Nothing tracked yet. Check off grocery items to fill this.
+                Nothing tracked yet. Mark shopping items as purchased to build this automatically.
               </div>
             ) : (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {pantry.map((p) => (
-                  <span key={p.id} style={chipStyle}>
-                    {p.text}
+                {inventory.map((item) => (
+                  <span key={item.id} style={chipStyle}>
+                    {item.text}
                     <button
-                      onClick={() => removePantry(p.id)}
-                      aria-label="remove"
+                      onClick={() => moveInventoryBackToList(item.id)}
+                      aria-label="move back to shopping list"
                       style={chipBtnStyle}
+                      title="Move back to shopping list"
                     >
-                      ×
+                      +
+                    </button>
+                    <button onClick={() => removeInventoryItem(item.id)} aria-label="remove" style={chipBtnStyle}>
+                      x
                     </button>
                   </span>
                 ))}
@@ -530,29 +561,20 @@ export default function Groceries() {
             )}
           </section>
 
-          {/* Stores */}
           <section className="card" style={{ marginTop: 16 }}>
             <h2 className="h2" style={{ margin: 0 }}>
               Supermarkets nearby
             </h2>
             <div className="muted" style={{ marginTop: 4 }}>
-              {locStatus === "asking" && "Asking your browser for location…"}
-              {locStatus === "denied" &&
-                "Location denied or unavailable. Enable it in your browser to see real stores."}
-              {locStatus === "no-key" &&
-                "Set VITE_GOOGLE_MAPS_KEY in .env.local to see real nearby stores."}
-              {locStatus === "idle" && "Loading…"}
-              {locStatus === "ok" &&
-                placesStatus === "loading" &&
-                "Location OK — querying Google Places…"}
-              {locStatus === "ok" &&
-                placesStatus === "ok" &&
-                `Places API OK · ${stores.length} store${stores.length === 1 ? "" : "s"} within 10 mi, closest first.`}
+              {locStatus === "asking" && "Asking your browser for location..."}
+              {locStatus === "denied" && "Location denied or unavailable. Enable it in your browser to see real stores."}
+              {locStatus === "no-key" && "Set VITE_GOOGLE_MAPS_KEY in .env.local to see real nearby stores."}
+              {locStatus === "idle" && "Loading..."}
+              {locStatus === "ok" && placesStatus === "loading" && "Location OK - querying Google Places..."}
+              {locStatus === "ok" && placesStatus === "ok" && `Places API OK · ${stores.length} store${stores.length === 1 ? "" : "s"} within 10 mi, closest first.`}
               {locStatus === "ok" && placesStatus === "error" && (
                 <>
-                  Places API error. Key may be invalid, unrestricted wrong, or
-                  the &ldquo;Places API (New)&rdquo; isn&rsquo;t enabled on your
-                  project.
+                  Places API error. Key may be invalid, unrestricted wrong, or the "Places API (New)" isn't enabled on your project.
                 </>
               )}
             </div>
@@ -579,14 +601,12 @@ export default function Groceries() {
 
             {stores.length === 0 ? (
               <div className="empty">
-                {locStatus === "ok" && placesStatus === "ok"
-                  ? "No grocery stores found within 10 miles."
-                  : "—"}
+                {locStatus === "ok" && placesStatus === "ok" ? "No grocery stores found within 10 miles." : "-"}
               </div>
             ) : (
-              stores.map((s) => (
+              stores.map((store) => (
                 <div
-                  key={s.id}
+                  key={store.id}
                   style={{
                     display: "flex",
                     justifyContent: "space-between",
@@ -597,19 +617,16 @@ export default function Groceries() {
                   }}
                 >
                   <div>
-                    <div style={{ fontWeight: 700, color: "var(--ink)" }}>
-                      {s.name}
-                    </div>
+                    <div style={{ fontWeight: 700, color: "var(--ink)" }}>{store.name}</div>
                     <div className="muted" style={{ fontSize: 13 }}>
-                      {s.distanceMi} mi · ~{s.etaMin} min ·{" "}
-                      {s.address ?? "—"}
+                      {store.distanceMi} mi · ~{store.etaMin} min · {store.address ?? "-"}
                     </div>
                   </div>
                   <div className="row" style={{ gap: 6 }}>
-                    <span className="tag">{s.kind}</span>
+                    <span className="tag">{store.kind}</span>
                     <a
                       className="btn sm ghost"
-                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.name + " " + (s.address ?? ""))}`}
+                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(store.name + " " + (store.address ?? ""))}`}
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -621,151 +638,10 @@ export default function Groceries() {
             )}
           </section>
         </div>
+        )}
       </div>
     </>
   );
-}
-
-// ---------- ChatBubble ------------------------------------------------------
-function ChatBubble({
-  msg,
-  onAddAll,
-}: {
-  msg: ChatMessage;
-  onAddAll: () => void;
-}) {
-  const isUser = msg.role === "user";
-  return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: isUser ? "flex-end" : "flex-start",
-      }}
-    >
-      <div style={bubbleStyle(isUser)}>
-        <div>{msg.content}</div>
-
-        {msg.plan && msg.plan.meals.length > 0 && (
-          <div
-            style={{
-              marginTop: 10,
-              paddingTop: 10,
-              borderTop: isUser
-                ? "1px solid rgba(255,255,255,.25)"
-                : "1px solid var(--line)",
-              display: "flex",
-              flexDirection: "column",
-              gap: 10,
-            }}
-          >
-            {msg.plan.summary && (
-              <div style={{ fontStyle: "italic", fontSize: 13.5 }}>
-                {msg.plan.summary}
-              </div>
-            )}
-            {msg.plan.meals.map((m, idx) => (
-              <div
-                key={idx}
-                style={{
-                  background: isUser
-                    ? "rgba(255,255,255,.12)"
-                    : "#fff8ee",
-                  border: isUser
-                    ? "1px solid rgba(255,255,255,.25)"
-                    : "1px solid var(--line)",
-                  borderRadius: 10,
-                  padding: "10px 12px",
-                }}
-              >
-                <div style={{ fontWeight: 700, fontSize: 14 }}>
-                  {m.name}
-                  {m.servings ? (
-                    <span className="muted"> · {m.servings} servings</span>
-                  ) : null}
-                </div>
-                {m.why && (
-                  <div className="muted" style={{ fontSize: 13 }}>
-                    {m.why}
-                  </div>
-                )}
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: 6,
-                    marginTop: 8,
-                  }}
-                >
-                  {m.ingredients.map((ing, i) => (
-                    <span
-                      key={i}
-                      style={{ ...chipStyle, background: "#F3EADB" }}
-                    >
-                      {ing}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {msg.plan && msg.plan.shoppingList.length > 0 && (
-          <button
-            className="btn sm"
-            style={{ marginTop: 10 }}
-            onClick={onAddAll}
-          >
-            + Add all {msg.plan.shoppingList.length} items to shopping list
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ThinkingDots() {
-  return (
-    <span aria-label="thinking">
-      <Dot delay={0} />
-      <Dot delay={0.15} />
-      <Dot delay={0.3} />
-    </span>
-  );
-}
-
-function Dot({ delay }: { delay: number }) {
-  return (
-    <span
-      style={{
-        display: "inline-block",
-        width: 6,
-        height: 6,
-        borderRadius: "50%",
-        background: "var(--mute)",
-        marginRight: 4,
-        animation: `beatThink 1.2s infinite ease-in-out`,
-        animationDelay: `${delay}s`,
-      }}
-    />
-  );
-}
-
-// ---------- inline styles shared across bubbles/chips -----------------------
-function bubbleStyle(isUser: boolean): React.CSSProperties {
-  return {
-    maxWidth: "82%",
-    padding: "10px 14px",
-    borderRadius: 14,
-    fontSize: 14,
-    lineHeight: 1.5,
-    wordWrap: "break-word",
-    border: "1px solid var(--line)",
-    background: isUser ? "var(--coral)" : "#fff",
-    color: isUser ? "#fff" : "var(--ink)",
-    borderColor: isUser ? "var(--coral)" : "var(--line)",
-    boxShadow: "var(--shadow-sm)",
-  };
 }
 
 const chipStyle: React.CSSProperties = {
@@ -790,49 +666,55 @@ const chipBtnStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
-// ---------- OpenAI call -----------------------------------------------------
-async function callGroceryCoach(args: {
-  request: string;
-  history: ChatMessage[];
+async function generateMealPlan(args: {
+  ingredientsOnHand: string;
   pantry: string[];
   shoppingList: string[];
-}): Promise<{ reply: string; plan?: GroceryPlan }> {
+}): Promise<GroceryPlan> {
   if (!OPENAI_KEY) {
     return {
-      reply:
-        "No OpenAI key configured — running in demo mode. Add VITE_OPENAI_API_KEY to .env.local to enable the real coach.",
+      summary:
+        "No OpenAI key configured - running in demo mode. Add VITE_OPENAI_API_KEY to .env.local to enable real meal generation.",
+      meals: [
+        {
+          name: "Spinach feta scramble",
+          servings: 2,
+          ingredients: ["eggs", "spinach", "feta", "olive oil"],
+          why: "Fast, flexible, and easy to finish with whatever veg you already have.",
+        },
+      ],
+      shoppingList: [{ text: "feta", category: "dairy" }],
     };
   }
 
-  const systemPrompt = `You are Beat, a grocery-planning coach.
-Your goal: turn a vague request into a concrete grocery plan — meals + a shopping list.
-Be direct and concise. Never repeat ingredients the user already has in their pantry.
-Respond with VALID JSON ONLY (no markdown, no prose outside JSON). Shape:
+  const systemPrompt = `You are Beat, a practical meal builder.
+Turn the user's available ingredients into one realistic meal idea.
+Use what they already have first. Only add shopping list items if absolutely needed.
+Respond with VALID JSON ONLY. Shape:
 {
-  "reply": "<one or two sentences summarizing the plan>",
-  "plan": {
-    "summary": "<one line>",
-    "meals": [
-      { "name": "...", "servings": 2, "ingredients": ["..."], "why": "..." }
-    ],
-    "shoppingList": [
-      { "text": "...", "category": "produce|protein|dairy|pantry|frozen|other" }
-    ]
-  }
+  "summary": "<one line>",
+  "meals": [
+    { "name": "...", "servings": 2, "ingredients": ["..."], "why": "..." }
+  ],
+  "shoppingList": [
+    { "text": "...", "category": "produce|protein|dairy|pantry|frozen|other" }
+  ]
 }`;
 
   const pantryLine = args.pantry.length
-    ? `Pantry (already have, do NOT include on shopping list): ${args.pantry.join(", ")}`
-    : "Pantry: empty";
+    ? `Inventory already on hand: ${args.pantry.join(", ")}`
+    : "Inventory: empty";
   const listLine = args.shoppingList.length
     ? `Current shopping list: ${args.shoppingList.join(", ")}`
     : "Shopping list: empty";
 
-  // Convert chat history into OpenAI messages.
   const messages = [
     { role: "system", content: systemPrompt },
     { role: "system", content: `${pantryLine}\n${listLine}` },
-    ...args.history.map((m) => ({ role: m.role, content: m.content })),
+    {
+      role: "user",
+      content: `Ingredients on hand: ${args.ingredientsOnHand}\nMake one meal I can cook now and keep the shopping list minimal.`,
+    },
   ];
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -854,58 +736,45 @@ Respond with VALID JSON ONLY (no markdown, no prose outside JSON). Shape:
     throw new Error(`OpenAI ${res.status}: ${body}`);
   }
 
-  const json = (await res.json()) as {
-    choices?: { message?: { content?: string } }[];
-  };
+  const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
   const raw = json.choices?.[0]?.message?.content ?? "";
+  const parsed = JSON.parse(raw) as Partial<GroceryPlan>;
 
-  try {
-    const parsed = JSON.parse(raw) as { reply?: string; plan?: GroceryPlan };
-    return {
-      reply: parsed.reply ?? "Here's a plan.",
-      plan: parsed.plan,
-    };
-  } catch {
-    // Model ignored the JSON instruction — show the raw reply.
-    return { reply: raw || "The coach didn't return anything." };
-  }
+  return {
+    summary: parsed.summary ?? "Here's a meal you can make from what you have.",
+    meals: Array.isArray(parsed.meals) ? parsed.meals : [],
+    shoppingList: Array.isArray(parsed.shoppingList) ? parsed.shoppingList : [],
+  };
 }
 
-// ---------- Places API (New) ------------------------------------------------
-async function searchNearbyGroceries(
-  lat: number,
-  lng: number,
-): Promise<Store[]> {
-  const res = await fetch(
-    "https://places.googleapis.com/v1/places:searchNearby",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": MAPS_KEY,
-        "X-Goog-FieldMask": [
-          "places.id",
-          "places.displayName",
-          "places.formattedAddress",
-          "places.location",
-          "places.types",
-          "places.primaryType",
-          "places.rating",
-        ].join(","),
-      },
-      body: JSON.stringify({
-        includedTypes: ["grocery_store", "supermarket"],
-        maxResultCount: 12,
-        rankPreference: "DISTANCE",
-        locationRestriction: {
-          circle: {
-            center: { latitude: lat, longitude: lng },
-            radius: 16093, // 10 miles in meters
-          },
-        },
-      }),
+async function searchNearbyGroceries(lat: number, lng: number): Promise<Store[]> {
+  const res = await fetch("https://places.googleapis.com/v1/places:searchNearby", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": MAPS_KEY,
+      "X-Goog-FieldMask": [
+        "places.id",
+        "places.displayName",
+        "places.formattedAddress",
+        "places.location",
+        "places.types",
+        "places.primaryType",
+        "places.rating",
+      ].join(","),
     },
-  );
+    body: JSON.stringify({
+      includedTypes: ["grocery_store", "supermarket"],
+      maxResultCount: 12,
+      rankPreference: "DISTANCE",
+      locationRestriction: {
+        circle: {
+          center: { latitude: lat, longitude: lng },
+          radius: 16093,
+        },
+      },
+    }),
+  });
 
   if (!res.ok) {
     const body = await res.text();
@@ -918,65 +787,35 @@ async function searchNearbyGroceries(
       displayName?: { text: string };
       formattedAddress?: string;
       location?: { latitude: number; longitude: number };
-      types?: string[];
-      primaryType?: string;
       rating?: number;
     }>;
   };
 
   return (data.places ?? [])
-    .map((p): Store | null => {
-      if (!p.location) return null;
-      const distanceKm = haversineKm(
-        lat,
-        lng,
-        p.location.latitude,
-        p.location.longitude,
-      );
+    .map((place): Store | null => {
+      if (!place.location) return null;
+      const distanceKm = haversineKm(lat, lng, place.location.latitude, place.location.longitude);
       const distanceMi = distanceKm * 0.621371;
-      const etaMin = Math.max(2, Math.round(distanceMi * 3)); // ~20 mph urban estimate
       return {
-        id: p.id,
-        name: p.displayName?.text ?? "Unnamed",
+        id: place.id,
+        name: place.displayName?.text ?? "Unnamed",
         kind: "grocery",
         distanceMi: Math.round(distanceMi * 10) / 10,
-        etaMin,
-        healthScore: p.rating ? Math.min(10, p.rating * 2) : 7,
-        address: p.formattedAddress,
+        etaMin: Math.max(2, Math.round(distanceMi * 3)),
+        healthScore: place.rating ? Math.min(10, place.rating * 2) : 7,
+        address: place.formattedAddress,
       };
     })
-    .filter((s): s is Store => s !== null);
+    .filter((store): store is Store => store !== null);
 }
 
-function haversineKm(
-  lat1: number,
-  lng1: number,
-  lat2: number,
-  lng2: number,
-): number {
-  const R = 6371;
-  const toRad = (d: number) => (d * Math.PI) / 180;
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const toRad = (degrees: number) => (degrees * Math.PI) / 180;
   const dLat = toRad(lat2 - lat1);
   const dLng = toRad(lng2 - lng1);
   const a =
     Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) *
-      Math.cos(toRad(lat2)) *
-      Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(a));
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(a));
 }
 
-// ---------- keyframes (injected once) ---------------------------------------
-if (
-  typeof document !== "undefined" &&
-  !document.getElementById("beat-think-kf")
-) {
-  const style = document.createElement("style");
-  style.id = "beat-think-kf";
-  style.textContent = `
-@keyframes beatThink {
-  0%, 80%, 100% { opacity: 0.3; transform: translateY(0); }
-  40% { opacity: 1; transform: translateY(-3px); }
-}`;
-  document.head.appendChild(style);
-}
