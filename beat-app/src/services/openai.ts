@@ -340,7 +340,7 @@ const MOCK_MEALS: MealSuggestion[] = [
 ];
 
 const MOCK_MACROS: MacroEstimate = {
-  item: "Chicken salad bowl",
+  item: "Cheese Burger",
   visualDescription: "A medium bowl with chopped chicken, mixed greens, tomatoes, cucumber, and creamy dressing.",
   serving: "1 medium bowl",
   calories: 420,
