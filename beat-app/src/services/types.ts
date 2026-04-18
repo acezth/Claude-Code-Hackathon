@@ -238,3 +238,33 @@ export interface CoachReply {
   text: string;
   suggestions?: string[];
 }
+
+export interface CoachMealPreferences {
+  goal: string;
+  dietaryStyle: string;
+  allergies: string;
+  dislikes: string;
+  location: "home" | "airport" | "hotel" | "on-the-road";
+  cookingAccess: "full-kitchen" | "microwave" | "no-cook";
+  timeAvailableMin: number;
+  budget: "low" | "medium" | "high";
+}
+
+export interface CoachMealOption {
+  id: string;
+  title: string;
+  emoji: string;
+  why: string;
+  ingredients: string[];
+  missing: string[];
+  minutes: number;
+  calories?: number;
+  bestFor: string;
+}
+
+export interface CoachMealPlan {
+  summary: string;
+  meals: CoachMealOption[];
+  groceryStaples: string[];
+  followUps: string[];
+}

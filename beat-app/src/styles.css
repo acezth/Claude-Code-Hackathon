@@ -319,6 +319,93 @@ a { color: inherit; }
 }
 
 /* ============ coach ============ */
+.coach-planner {
+  background: linear-gradient(180deg, #fff 0%, #fff9f4 100%);
+}
+.coach-form-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.coach-field-label {
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--mute);
+  margin-bottom: 6px;
+}
+.coach-context-strip,
+.coach-meal-grid {
+  display: grid;
+  gap: 14px;
+}
+.coach-context-strip {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 16px;
+}
+.coach-context-card,
+.coach-meal-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+}
+.coach-context-value {
+  font-family: var(--font-serif);
+  font-size: 22px;
+  line-height: 1.1;
+  margin-bottom: 4px;
+}
+.coach-plan-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+.coach-meal-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.coach-meal-header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.coach-meal-note {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--cream);
+  color: var(--ink-2);
+  font-size: 13px;
+}
+.coach-chat-shell {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  background: #fafaf6;
+  min-height: 220px;
+  max-height: 380px;
+  overflow-y: auto;
+}
+.coach-message-role {
+  font-size: 11px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+.coach-message-role[data-role="beat"] {
+  color: var(--coral);
+}
+.coach-message-role[data-role="you"] {
+  color: var(--mute);
+}
 .lesson {
   display: grid; grid-template-columns: 1fr auto; gap: 12px;
   padding: 16px; border-radius: var(--radius); background: #fff;
@@ -462,6 +549,8 @@ a { color: inherit; }
   .sidebar .spacer, .sidebar .foot, .user-chip { display: none; }
   .main { padding: 20px; }
   .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  .coach-form-grid, .coach-context-strip, .coach-meal-grid { grid-template-columns: 1fr; }
+  .coach-plan-summary { flex-direction: column; align-items: flex-start; }
   .activity-summary-grid, .detail-metric-grid, .activity-form-grid { grid-template-columns: 1fr; }
   .strength-row { grid-template-columns: 1fr 1fr 1fr; }
   .workout { grid-template-columns: 40px 1fr; }

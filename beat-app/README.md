@@ -110,12 +110,12 @@ service file. Swap the mocks for real calls when you're ready.
 - **Auth flow:** redirect to `/oauth/authorize` → Strava redirects back with `?code=...` to `/settings` → the Settings page auto-exchanges the code.
 - **Security note:** the token exchange should ideally happen on a server so `client_secret` never reaches the browser.
 
-### OpenAI
+### Anthropic
 - **Where:** `src/services/openai.ts`
 - **What's stubbed:** `suggestStorePicks`, `suggestMealsFromFridge`, `askCoach`
-- **You need:** API key from <https://platform.openai.com/api-keys>, set `VITE_OPENAI_API_KEY`.
-- **Model:** defaults to `gpt-4o-mini` (fast + cheap). Change with `VITE_OPENAI_MODEL`.
-- **Vision:** `suggestMealsFromFridge` has a TODO showing how to wire the vision model with a base64 data URL.
+- **You need:** API key from <https://platform.claude.com/settings/keys>, set `VITE_ANTHROPIC_API_KEY`.
+- **Model:** defaults to `claude-sonnet-4-6`. Change with `VITE_ANTHROPIC_MODEL`.
+- **Vision:** `suggestMealsFromFridge` still has a TODO showing where to wire Anthropic image input.
 - **Production:** move the key to a server proxy. Don't ship a browser bundle with your key.
 
 ## Where the features map to code
@@ -154,7 +154,7 @@ npm run typecheck   # tsc --noEmit
 
 1. `npm install` and confirm `npm run dev` renders the Home page with mock data.
 2. Pick one integration to go end-to-end first — I'd recommend **Google Calendar** (fastest win — Home page starts pulling the real schedule immediately).
-3. Then OpenAI for Scene Scan picks (that's the "wow" feature).
+3. Then Anthropic for Scene Scan picks (that's the "wow" feature).
 4. Strava and fridge vision last — they're net-new content surfaces.
 
 Happy building.

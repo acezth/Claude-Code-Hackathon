@@ -12,10 +12,9 @@ function save(items: GroceryItem[]) {
 }
 
 export default function Groceries() {
-  const [items, setItems] = useState<GroceryItem[]>([]);
+  const [items, setItems] = useState<GroceryItem[]>(load);
   const [input, setInput] = useState("");
 
-  useEffect(() => { setItems(load()); }, []);
   useEffect(() => { save(items); }, [items]);
 
   function add() {
