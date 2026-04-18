@@ -229,6 +229,94 @@ a { color: inherit; }
 }
 .workout .title { font-weight: 600; }
 .workout .sub { font-size: 12px; color: var(--mute); }
+.workout-side {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+}
+.workout-detail {
+  padding: 0 0 16px 54px; border-bottom: 1px solid var(--line);
+}
+.activity-avatar {
+  width: 54px; height: 54px; border-radius: 50%; object-fit: cover;
+  border: 2px solid var(--line);
+}
+.activity-avatar-fallback {
+  display: flex; align-items: center; justify-content: center;
+  background: #fff; color: #fff; font-weight: 700;
+  overflow: hidden;
+}
+.activity-avatar-logo {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.activity-summary-grid,
+.detail-metric-grid,
+.activity-form-grid {
+  display: grid; gap: 14px;
+}
+.activity-summary-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.detail-metric-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.activity-form-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.summary-stat,
+.mini-metric,
+.zone-card {
+  background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px;
+}
+.summary-stat-title,
+.mini-metric-label,
+.detail-section-title,
+.zone-title {
+  font-size: 11px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700;
+  color: var(--mute);
+}
+.summary-stat-value,
+.mini-metric-value {
+  font-family: var(--font-serif); font-size: 24px; margin: 4px 0 2px;
+}
+.inline-alert {
+  padding: 12px 14px; border-radius: 10px; font-size: 13px; font-weight: 600;
+}
+.inline-alert.ok {
+  background: #e3efe6; color: var(--ok);
+}
+.inline-alert.warn {
+  background: #ffe0d6; color: var(--warn);
+}
+.strength-editor {
+  margin-top: 18px; border: 1px solid var(--line); border-radius: var(--radius); padding: 16px;
+  background: #fff;
+}
+.strength-list {
+  display: grid; gap: 10px; margin-top: 14px;
+}
+.strength-row {
+  display: grid; grid-template-columns: minmax(180px, 1.6fr) repeat(3, minmax(0, .7fr)) 80px auto; gap: 10px;
+  align-items: center;
+}
+.sync-checkbox {
+  display: inline-flex; align-items: center; gap: 10px; font-size: 13px; color: var(--ink-2);
+}
+.sync-checkbox input {
+  width: 18px; height: 18px; accent-color: var(--coral);
+}
+.detail-list,
+.zone-list,
+.exercise-list {
+  display: grid; gap: 8px;
+}
+.detail-list-row {
+  display: flex; justify-content: space-between; gap: 12px; padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.detail-list-row:last-child { border-bottom: 0; }
+.exercise-pill {
+  display: inline-flex; gap: 6px; align-items: center; padding: 10px 12px;
+  border-radius: 10px; background: var(--cream); border: 1px solid var(--line);
+}
 
 /* ============ coach ============ */
 .lesson {
@@ -268,4 +356,9 @@ a { color: inherit; }
   .sidebar .spacer, .sidebar .foot { display: none; }
   .main { padding: 20px; }
   .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  .activity-summary-grid, .detail-metric-grid, .activity-form-grid { grid-template-columns: 1fr; }
+  .strength-row { grid-template-columns: 1fr 1fr 1fr; }
+  .workout { grid-template-columns: 40px 1fr; }
+  .workout-side { align-items: flex-start; grid-column: 2; }
+  .workout-detail { padding-left: 0; }
 }

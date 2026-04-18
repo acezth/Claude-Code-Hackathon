@@ -2,8 +2,15 @@
 // Do NOT expose server-only secrets to the browser in production.
 
 function read(key: string): string {
-  const v = import.meta.env[key];
+  const env = typeof import.meta !== "undefined" && typeof import.meta.env === "object"
+    ? (import.meta.env as Record<string, unknown>)
+    : {};
+  const v = env[key];
   return typeof v === "string" ? v : "";
+}
+
+function currentOrigin(): string {
+  return typeof window !== "undefined" ? window.location.origin : "http://localhost:5173";
 }
 
 export const config = {
@@ -19,8 +26,11 @@ export const config = {
   strava: {
     clientId: read("VITE_STRAVA_CLIENT_ID"),
     clientSecret: read("VITE_STRAVA_CLIENT_SECRET"),
-    redirectUri: `${window.location.origin}/settings`,
-    scope: "read,activity:read_all",
+    accessToken: read("VITE_STRAVA_ACCESS_TOKEN"),
+    refreshToken: read("VITE_STRAVA_REFRESH_TOKEN"),
+    tokenExpiresAt: read("VITE_STRAVA_TOKEN_EXPIRES_AT"),
+    redirectUri: `${currentOrigin()}/settings`,
+    scope: "read,profile:read_all,activity:read_all,activity:write",
   },
   openai: {
     apiKey: read("VITE_OPENAI_API_KEY"),

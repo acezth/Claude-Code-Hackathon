@@ -1,23 +1,32 @@
 import { useEffect, useState } from "react";
 import { isGoogleSignedIn, signInWithGoogle, signOutGoogle } from "@/services/google";
-import { buildStravaAuthUrl, exchangeStravaCode, isStravaConnected, disconnectStrava } from "@/services/strava";
+import {
+  buildStravaAuthUrlForPath,
+  completeStravaAuthFromCurrentUrl,
+  isStravaConnected,
+  disconnectStrava,
+  getStravaSetupError
+} from "@/services/strava";
 import { config } from "@/lib/config";
 
 export default function Settings() {
   const [googleOn, setGoogleOn] = useState(isGoogleSignedIn());
   const [stravaOn, setStravaOn] = useState(isStravaConnected());
+  const [stravaError, setStravaError] = useState<string>("");
+  const stravaSetupError = getStravaSetupError();
 
   // If Strava redirected back with ?code=..., exchange it.
   useEffect(() => {
-    const url = new URL(window.location.href);
-    const code = url.searchParams.get("code");
-    if (code) {
-      exchangeStravaCode(code).then(() => {
-        setStravaOn(true);
-        url.searchParams.delete("code");
-        window.history.replaceState({}, "", url.toString());
+    completeStravaAuthFromCurrentUrl()
+      .then((didConnect) => {
+        if (didConnect) {
+          setStravaOn(true);
+          setStravaError("");
+        }
+      })
+      .catch((error: unknown) => {
+        setStravaError(error instanceof Error ? error.message : "Unable to finish Strava connection.");
       });
-    }
   }, []);
 
   async function toggleGoogle() {
@@ -34,8 +43,11 @@ export default function Settings() {
     if (stravaOn) {
       disconnectStrava();
       setStravaOn(false);
+      setStravaError("");
+    } else if (stravaSetupError) {
+      setStravaError(stravaSetupError);
     } else {
-      window.location.href = buildStravaAuthUrl();
+      window.location.href = buildStravaAuthUrlForPath("/settings");
     }
   }
 
@@ -49,6 +61,12 @@ export default function Settings() {
 
       <section className="card" style={{ marginTop: 20 }}>
         <h2 className="h2">Integrations</h2>
+
+        {stravaError && (
+          <div className="inline-alert warn" style={{ marginBottom: 16 }}>
+            {stravaError}
+          </div>
+        )}
 
         <div className="conn-row">
           <div className="logo">📅</div>
@@ -73,8 +91,13 @@ export default function Settings() {
           <div>
             <div style={{ fontWeight: 600 }}>Strava</div>
             <div className="muted" style={{ fontSize: 12 }}>
-              Runs, rides, hotel-gym sessions &mdash; auto-logged.
+              Auto-sync activities, read athlete stats, and write manual activity summaries.
             </div>
+            {stravaSetupError && (
+              <div className="muted" style={{ fontSize: 12, color: "var(--warn)", marginTop: 4 }}>
+                {stravaSetupError}
+              </div>
+            )}
           </div>
           <div className="row" style={{ gap: 10 }}>
             <span className={`status ${stravaOn ? "on" : "off"}`}>
