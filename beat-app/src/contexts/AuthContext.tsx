@@ -27,22 +27,30 @@ interface AuthValue {
 const STORAGE_KEY = "beat.auth";
 const AuthContext = createContext<AuthValue | null>(null);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
+function readStoredAuth(): { user: User | null; accessToken: string | null } {
+  if (typeof window === "undefined") {
+    return { user: null, accessToken: null };
+  }
 
-  // restore from localStorage on mount
-  useEffect(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    try {
-      const parsed = JSON.parse(raw) as { user: User; accessToken: string };
-      setUser(parsed.user);
-      setAccessToken(parsed.accessToken);
-    } catch {
-      /* ignore */
-    }
-  }, []);
+  const raw = window.localStorage.getItem(STORAGE_KEY);
+  if (!raw) {
+    return { user: null, accessToken: null };
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as { user?: User; accessToken?: string };
+    return {
+      user: parsed.user ?? null,
+      accessToken: parsed.accessToken ?? null,
+    };
+  } catch {
+    return { user: null, accessToken: null };
+  }
+}
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(() => readStoredAuth().user);
+  const [accessToken, setAccessToken] = useState<string | null>(() => readStoredAuth().accessToken);
 
   // push token into the google service layer whenever it changes
   useEffect(() => {

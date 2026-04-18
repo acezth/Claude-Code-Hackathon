@@ -15,7 +15,12 @@ export default function Login() {
   const { signIn } = useAuth();
   const nav = useNavigate();
   const loc = useLocation();
-  const from = (loc.state as { from?: { pathname: string } } | null)?.from?.pathname ?? "/";
+  const fromLocation = (loc.state as {
+    from?: { pathname: string; search?: string; hash?: string };
+  } | null)?.from;
+  const from = fromLocation
+    ? `${fromLocation.pathname}${fromLocation.search ?? ""}${fromLocation.hash ?? ""}`
+    : "/";
 
   const hasClientId = config.google.clientId.length > 0;
 
