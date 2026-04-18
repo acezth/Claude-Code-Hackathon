@@ -1,4 +1,5 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 
 const NAV: { to: string; label: string; icon: string }[] = [
   { to: "/",           label: "Today",       icon: "◎" },
@@ -11,6 +12,21 @@ const NAV: { to: string; label: string; icon: string }[] = [
 ];
 
 export default function Layout() {
+  const { user, signOut } = useAuth();
+  const nav = useNavigate();
+
+  function handleSignOut() {
+    signOut();
+    nav("/login", { replace: true });
+  }
+
+  const initials = (user?.name ?? "?")
+    .split(" ")
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -32,6 +48,24 @@ export default function Layout() {
           </NavLink>
         ))}
         <div className="spacer" />
+
+        {user && (
+          <div className="user-chip">
+            {user.picture ? (
+              <img src={user.picture} alt={user.name} referrerPolicy="no-referrer" />
+            ) : (
+              <div className="avatar-fallback">{initials}</div>
+            )}
+            <div className="user-meta">
+              <div className="user-name">{user.name}</div>
+              <div className="user-email">{user.email}</div>
+            </div>
+            <button className="sign-out" onClick={handleSignOut} aria-label="Sign out" title="Sign out">
+              ⎋
+            </button>
+          </div>
+        )}
+
         <div className="foot">v0.1 · template</div>
       </aside>
       <main className="main">
