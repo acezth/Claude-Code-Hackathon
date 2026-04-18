@@ -25,7 +25,7 @@ export default function FridgeScan() {
     } catch (err) {
       if (err instanceof Error && err.message.startsWith("LOW_CONFIDENCE:")) {
         const pct = err.message.split(":")[1] ?? "0";
-        setMacroError(`Macro scan failed loudly: confidence ${pct}% is below required 80%. Upload a clearer meal image.`);
+        setMacroError(`Macro scan failed loudly: confidence ${pct}% is below required 70%. Upload a clearer meal image.`);
       } else {
         setMacroError("Could not analyze macros from this image. Try a clearer photo.");
       }

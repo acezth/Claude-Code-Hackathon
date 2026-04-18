@@ -36,6 +36,10 @@ export const config = {
     apiKey: read("VITE_OPENAI_API_KEY"),
     model: read("VITE_OPENAI_MODEL") || "gpt-4o-mini",
   },
+  anthropic: {
+    apiKey: read("VITE_ANTHROPIC_API_KEY"),
+    model: read("VITE_ANTHROPIC_MODEL") || "claude-3-5-sonnet-latest",
+  },
 };
 
 export function isConfigured(section: keyof typeof config): boolean {
