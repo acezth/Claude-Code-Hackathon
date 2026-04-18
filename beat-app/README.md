@@ -14,17 +14,67 @@ cp .env.example .env.local   # then fill in keys (optional — the app runs with
 npm run dev
 ```
 
-Open <http://localhost:5173>.
+Open <http://localhost:5173>. You'll be routed to `/login`. Click
+**"Continue in demo mode"** to see every page rendered with mock data,
+or set a Google Client ID (below) and click **"Continue with Google"**
+to pull your real calendar + inbox into the Home page.
+
+## Sign-in & auth
+
+Beat uses [Google Identity Services](https://developers.google.com/identity)
+via the [`@react-oauth/google`](https://github.com/MomenSherif/react-oauth) library.
+
+- **One click = identity + data scopes.** The "Continue with Google"
+  button asks for profile + `calendar.readonly` + `gmail.readonly` in
+  a single consent screen, so users don't see a second "connect your
+  calendar" step.
+- **Auth state** lives in `src/contexts/AuthContext.tsx` and is
+  persisted to `localStorage` under the `beat.auth` key. The
+  context calls `setGoogleAccessToken(...)` on every change, which is
+  what `src/services/google.ts` reads when it fires real API calls.
+- **Route guard:** `src/components/RequireAuth.tsx` wraps every
+  authenticated route. Unauthed visitors get bounced to `/login` with
+  the original path stashed in history state, so sign-in returns them
+  to the page they wanted.
+- **Demo mode:** the Login page has a "Continue in demo mode" button
+  that stores a fake user and a sentinel token (`"demo-token"`).
+  `isGoogleSignedIn()` treats that sentinel as not-signed-in, so all
+  services fall back to mocks. Useful for UI work without hitting a
+  quota.
+
+### Setting up your Google OAuth Client ID
+
+1. Go to <https://console.cloud.google.com/apis/credentials>.
+2. Create a project if you don't have one. Then **Enable APIs**: Google Calendar API, Gmail API, Places API, Maps JavaScript API.
+3. **Configure consent screen** → External → fill in app name, your email, add `../auth/calendar.readonly` and `../auth/gmail.readonly` scopes, add yourself as a test user.
+4. **Create credentials → OAuth 2.0 Client ID → Web application.**
+5. Under **Authorized JavaScript origins**, add:
+   - `http://localhost:5173`
+   - (and whatever you'll deploy to, e.g. `https://beat.yourdomain.com`)
+6. Copy the Client ID and paste it into `.env.local`:
+   ```
+   VITE_GOOGLE_CLIENT_ID=123456789-abcdefg.apps.googleusercontent.com
+   ```
+7. Restart `npm run dev` (Vite only picks up env changes at boot).
+
+Until you do this the Login page shows an inline notice and only the
+demo-mode button is active — the rest of the app still works against
+mock data.
 
 ## What's in here
 
 ```
 beat-app/
 ├── src/
-│   ├── App.tsx              # router
+│   ├── App.tsx              # router — /login is public, everything else is wrapped in RequireAuth
+│   ├── main.tsx             # <GoogleOAuthProvider> + <AuthProvider> + <BrowserRouter>
 │   ├── components/
-│   │   └── Layout.tsx       # sidebar + main shell
+│   │   ├── Layout.tsx       # sidebar + main shell + user chip + sign-out
+│   │   └── RequireAuth.tsx  # route guard — bounces unauthed users to /login
+│   ├── contexts/
+│   │   └── AuthContext.tsx  # user + accessToken state, persisted to localStorage
 │   ├── pages/
+│   │   ├── Login.tsx        # Google sign-in + demo mode
 │   │   ├── Home.tsx         # Today — producer brief, schedule, anchors, recent activity
 │   │   ├── SceneScan.tsx    # nearby stores filtered by time + AI picks per store
 │   │   ├── FridgeScan.tsx   # photo upload → AI meal suggestions → add missing to groceries
@@ -33,7 +83,7 @@ beat-app/
 │   │   ├── Coach.tsx        # AI chat + short lesson feed
 │   │   └── Settings.tsx     # API connection toggles + env status
 │   ├── services/
-│   │   ├── google.ts        # calendar / gmail / places stubs
+│   │   ├── google.ts        # real calendar + gmail calls; places stub; token plumbing
 │   │   ├── strava.ts        # oauth URL builder + activities stub
 │   │   ├── openai.ts        # picks, fridge vision, coach Q&A stubs
 │   │   └── types.ts         # shared TS types
