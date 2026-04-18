@@ -1,0 +1,3 @@
+Prompt:
+AS a national correspondent, my schedule is unpredictable! I'm constantly traveling, working odd hours, and often eating on the go. Staying healthy is important to me, and I try to stay active, but advice like "eat more protein" or "cut carbs" doesn't help when I'm staring into the fridge at home or grabbing food on the road. 
+Design a tool that removes the guesswork from staying healthy in real life _ think geatures like a personal coach that offers real-time nutritional advice but feel free to go further.
